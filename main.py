@@ -180,7 +180,3 @@ constructTeaCup()
 selectors()
 
 env.hold()
-'''
-while True:
-    env.step(0.05)
-'''
