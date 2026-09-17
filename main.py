@@ -27,6 +27,8 @@ from ir_support_extra_robots import Turtlebot3Waffle
     # REQUIRED react when a controlled simulated object is deliberately placed in a planned robot path
     # REQUIRED react to an asynchronous user or simulated sensor signal representing entry into an unsafe zone
 
+#might optimise vairables use so that location is where it starts not the middle as it is by default in Cuboid()
+
 #Scene objects
 #objects that STILL need to be made
     # teabag(s)
@@ -39,18 +41,60 @@ from ir_support_extra_robots import Turtlebot3Waffle
     # eStop
     # could also maybe do different colour/style cups
 
+# = Cuboid([ , , ], pose = SE3( , , ), color= )
+
 #Tea Cup
 #adding a handle to the Tea Cup might be a good idea, might do later
-teaCupSizeX = 0.25
-teaCupSizeY = 0.25
+teaCupSizeX = 0.05
+teaCupSizeY = 0.05
 teaCupSizeZ = 0.1
+teaCupWallThickness = 0.005
 
 teaCupLocationX = 0 
 teaCupLocationY = 0
 teaCupLocationZ = 0
-teaCupWallThickness = 0.025
-
 teaCupColour = "White"
+
+#Bench (including sink and tap)
+benchSizeX = 4
+benchSizeY = 1
+benchSizeZ = 0.9
+
+benchLocationX = 0
+benchLocationY = -1.5
+benchLocationZ = 0.45
+
+sinkSizeX = 0.4
+sinkSizeY = 0.4
+sinkSizeZ = 0.2
+
+sinkLocationX = 1.5
+sinkLocationY = -1.5
+
+tapSetbackFromsink = 0.05
+
+tapBaseRadius = 0.025
+tapBaseHeight = 0.2
+
+tapTipRadius = 0.025
+
+benchColour = "Black"
+sinkColour = "White"
+tapColour = "Blue"
+
+def constructBench():
+    bench = Cuboid([benchSizeX, benchSizeY, benchSizeZ], pose = SE3(benchLocationX, benchLocationY, benchLocationZ), color= benchColour)
+    sink = Cuboid([sinkSizeX, sinkSizeY, sinkSizeZ], pose = SE3(sinkLocationX, sinkLocationY,benchSizeZ - sinkSizeZ/2 +0.001), color= sinkColour)
+    tapBase = Cylinder(length=tapBaseHeight, radius=tapBaseRadius, pose=SE3(sinkLocationX, sinkLocationY - sinkSizeY/2 - tapSetbackFromsink, benchSizeZ + tapBaseHeight/2), color=tapColour)
+    #MAKE AN OBJECT FOR TAP TIP
+    env.add(bench)
+    env.add(sink)
+    env.add(tapBase)
+    #env.add(tapTip)
+
+
+
+
 
 #Safety Barrier
 barrierZoneX = [-2.5, 2.7]
@@ -58,7 +102,17 @@ barrierZoneY = [-2.5, 2.5]
 barrierHeight = 0.5
 barrierWidth = 0.025
 
-barrierColour = "red"
+barrierColour = "Yellow"
+
+#stove
+    # might make into a kettle base later - depends how we want to make the tea
+stoveRadius = 0.175
+stoveHeight = 0.05
+stoveColour = "Red"
+
+stoveLocationX = 1
+stoveLocationY = 0
+stoveLocationZ = 0
 
 #GUI Sliders
 setWaterTemperature = 0
@@ -116,7 +170,6 @@ def sliders():
     )
     env.add(proportionOfMilkInTeaSlider)
 
-
 def selectors():
     teaBagSelector = swift.Select(
         selectedTeaBag,
@@ -132,9 +185,7 @@ def selectors():
     )
     env.add(milkTypeSelector)
 
-#make some function that generates a cuboid in the teacup the height of amountOfTea, 
-# and maybe change the colour according to tea type and milk type 
-# (maybe take into account transperacy of the cup too)
+
 
 def constructBarrier():
     barrierLengthX = abs(barrierZoneX[1]) + abs(barrierZoneX[0])
@@ -166,6 +217,14 @@ def constructTeaCup():
     env.add(teaCupTopWall)
     env.add(teaCupBottomWall)
 
+def constructStove():
+    stove = Cylinder(length=stoveHeight, radius=stoveRadius, pose=SE3(stoveLocationX, stoveLocationY, stoveLocationZ), color=stoveColour)
+    env.add(stove)
+
+#make some function that generates a cuboid in the teacup the height of amountOfTea, 
+# and maybe change the colour according to tea type and milk type 
+# (maybe take into account transperacy of the cup too)
+
 # Create Swift environment
 env = swift.Swift()
 env.launch(realtime=True)
@@ -175,8 +234,11 @@ env.set_camera_pose([-3, 3, 3.5], [0.0, 0.0, 1.2])
 
 #Calling all functions
 constructBarrier()
-sliders()
+constructStove()
 constructTeaCup()
+constructBench()
+
+sliders()
 selectors()
 
 env.hold()
