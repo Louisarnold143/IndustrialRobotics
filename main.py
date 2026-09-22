@@ -11,6 +11,7 @@ from ir_support.plyprocess import *
 import roboticstoolbox as rtb
 from spatialgeometry import Cuboid, Cylinder
 from ir_support_extra_robots import Turtlebot3Waffle
+import threading
 
 # The project will have 3 Omron TM5-700 robotic arms that will make 
 # the user a cup of tea, with the user being able to select aspects 
@@ -35,7 +36,14 @@ from ir_support_extra_robots import Turtlebot3Waffle
     # eStop
     # could also maybe do different colour/style cups
     # JAKA MiniCobo
-    # backsplash
+    # rangehood
+    # water for tap
+    # plug for the sink
+
+# things that need to be done
+    # get sliders, selectors and buttons to work
+    # configure eStop to work
+    # 
 
 # = Cuboid([, , ], pose = SE3(, , ), color= )
 
@@ -49,7 +57,6 @@ teaCupWallThickness = 0.005
 teaCupLocationX = 0.75
 teaCupLocationY = -1.5
 teaCupLocationZ = 0.9
-teaCupColour = "White"
 
 #Bench (including sink and tap)
 benchSizeX = 4
@@ -61,8 +68,6 @@ benchLocationY = -1.5
 
 backSplashDepth = 0.1
 backSplashHeight = 1.75
-
-backSplashColour = (95, 75, 67)
 
 sinkSizeX = 0.4
 sinkSizeY = 0.4
@@ -78,33 +83,55 @@ tapBaseHeight = 0.2
 tapTipLength = 0.3
 #could do a thing where if the tap tip isnt made inside the sink it shits itself
 
-#put all the colour variables together
-#put all the colour variables together
-#put all the colour variables together
-#put all the colour variables together
-#put all the colour variables together
-#put all the colour variables together
+benchColour             = [166,128,100] #medium brown wood
+backSplashColour        = (95, 75, 67) #dark brown wood
+teaCupColour            = "White"
+sinkColour              = (192, 192, 192) #silver
+tapColour               = (192, 192, 192) #silver
+barrierColour           = "Yellow"
+barrierDoorColour       = (255, 200, 0) 
+barrierDoorFrameColour  = "white"
+stoveBaseColour         = (192, 192, 192) #silver
+stoveDialColour         = (120, 112, 110) #dark silver
 
-benchColour = [166,128,100]
-sinkColour = "White"
-tapColour = "White"
+stoveColourBottomLeft   = (210, 210, 210) # light silver
+stoveColourBottomRight  = (210, 210, 210) # light silver
+stoveColourTopLeft      = (210, 210, 210) # light silver
+stoveColourTopRight     = "red"
+
+sinkWallThickness = 0.005
 
 #Safety Barrier
-barrierZoneX = [-2.5, 2.7]
+barrierZoneX = [-2.5, 2.5]
 barrierZoneY = [-2.5, 2.5]
-barrierHeight = 1.5
+barrierHeight = 2.25
 barrierWidth = 0.025
+barrierDoorWidth = 0.82
+barrierDoorHeight = 2.040
+barrierDoorFrameWidth = 0.05
 
-barrierColour = "Yellow"
+barrierMiddleX = ((barrierZoneX[0]+barrierZoneX[1])/2)
 
 #stove
     # might make into a kettle base later - depends how we want to make the tea
-stoveRadius = 0.175
+stoveRadius = 0.1
 stoveHeight = 0.05
-stoveColour = "Red"
+stoveBaseSizeX = 0.8
+stoveBaseSizeY = 0.7
 
-stoveLocationX = -1.5
+stoveLocationX = -1.4
 stoveLocationY = -1.5
+
+stoveSpacingX = 2
+stoveSpacingY = 1.75
+
+stoveDialRadius = 0.025
+stoveDialHeight = 0.01
+
+global stoveBottomLeft
+global stoveBottomRight
+global stoveTopLeft
+global stoveTopRight
 
 #milk carton
 milkCartonSizeX = 0.07
@@ -118,7 +145,7 @@ gapBetweenMilks = 0.1
 teaBagBagSizeX = 0.03
 teaBagBagSizeY = 0.005
 teaBagBagSizeZ = 0.05
-leftMostTeaBag = -0.5
+leftMostTeaBag = -0.25
 gapBetweenTeaBagBoxes = 0.05
 gapBetweenTeaBagsInBoxes = 0.01
 
@@ -137,6 +164,11 @@ proportionOfMilkInTea = 0
 # GUI selectors
 selectedTeaBag = ""
 selectedMilkType = ""
+selectedStove = ""
+
+#GUI buttons
+openDoor = bool(0)
+begin = 0
 
 teaBagOptionsWithColours = [["Earl Gray"            , "yellow"],
                             ["English Breakfast"    , "red"],
@@ -151,11 +183,22 @@ milkTypeOptionsWithColours = [["Full Cream Milk", "blue"],
                               ["Oat Milk"       , "white"],
                               ["Rice Milk"      , "yellow"]]
 
+stoves = ["Bottom Left", "Bottom Right", "Top Left", "Top Right"]
+
 milkCartonWorkingNumber = 0
 teaBagWorkingNumber = 0
 
 milkTypeOptions = [milk[0] for milk in milkTypeOptionsWithColours]
 teaBagOptions = [tea[0] for tea in teaBagOptionsWithColours]
+
+def wait_for_enter(stop_event):
+    input("Press Enter in this terminal when you are finished.\n")
+    stop_event.set()
+
+def buttons():
+    env.add(swift.Button(lambda _: openBarrierDoor(1), desc="Open Door"))
+    #env.add(swift.Button(begin, desc="START MAKING TEA!"))
+    
 
 def sliders():
     waterTemperatureSlider = swift.Slider(
@@ -206,6 +249,13 @@ def selectors():
     )
     env.add(milkTypeSelector)
 
+    stoveSelector = swift.Select(
+        selectedStove,
+        options=stoves,
+        desc="Select Stove"
+    )
+    env.add(stoveSelector)
+
 def constructBarrier():
     barrierLengthX = abs(barrierZoneX[1]) + abs(barrierZoneX[0])
     barrierLengthY = abs(barrierZoneY[1]) + abs(barrierZoneY[0])
@@ -213,45 +263,91 @@ def constructBarrier():
     barrierMiddleX = ((barrierZoneX[0]+barrierZoneX[1])/2)
     barrierMiddleY = ((barrierZoneY[0]+barrierZoneY[1])/2)
 
-    barrierLeft = Cuboid([barrierWidth, barrierLengthY, barrierHeight], pose = SE3(barrierZoneX[0], barrierMiddleY, (barrierHeight/2)), color=barrierColour)
-    barrierRight = Cuboid([barrierWidth, barrierLengthY, barrierHeight], pose = SE3(barrierZoneX[1], barrierMiddleY, (barrierHeight/2)), color=barrierColour)
-    barrierTop = Cuboid([barrierLengthX, barrierWidth, barrierHeight], pose = SE3(barrierMiddleX, barrierZoneY[0], (barrierHeight/2)), color=barrierColour)
-    barrierBottom = Cuboid([barrierLengthX, barrierWidth, barrierHeight], pose = SE3(barrierMiddleX, barrierZoneY[1], (barrierHeight/2)), color=barrierColour)
+    barrierLeft = Cuboid([barrierWidth, barrierLengthY + barrierWidth, barrierHeight], pose = SE3(barrierZoneX[0], barrierMiddleY, (barrierHeight/2)), color=barrierColour)
+    barrierRight = Cuboid([barrierWidth, barrierLengthY + barrierWidth, barrierHeight], pose = SE3(barrierZoneX[1], barrierMiddleY, (barrierHeight/2)), color=barrierColour)
+    barrierTop = Cuboid([barrierLengthX + barrierWidth, barrierWidth, barrierHeight], pose = SE3(barrierMiddleX, barrierZoneY[0], (barrierHeight/2)), color=barrierColour)
+    barrierBottomLeft = Cuboid([(barrierLengthX - barrierDoorWidth - 2*barrierDoorFrameWidth)/2, barrierWidth, barrierHeight], pose = SE3(-(barrierLengthX/2 - (barrierLengthX-barrierDoorWidth - 2*barrierDoorFrameWidth)/4), barrierZoneY[1], (barrierHeight/2)), color=barrierColour)
+    barrierBottomRight = Cuboid([(barrierLengthX - barrierDoorWidth - 2*barrierDoorFrameWidth)/2, barrierWidth, barrierHeight], pose = SE3(barrierLengthX/2 - (barrierLengthX-barrierDoorWidth - 2*barrierDoorFrameWidth)/4, barrierZoneY[1], (barrierHeight/2)), color=barrierColour)
+    barrierBottomTop = Cuboid([barrierDoorWidth + 2*barrierDoorFrameWidth, barrierWidth, barrierHeight - barrierDoorHeight - barrierDoorFrameWidth], pose = SE3(barrierMiddleX, barrierZoneY[1], barrierHeight - (barrierHeight-barrierDoorHeight-barrierDoorFrameWidth)/2), color=barrierColour)
+
+    doorFrameLeft = Cuboid([barrierDoorFrameWidth, barrierWidth, barrierHeight - (barrierHeight - barrierDoorHeight - barrierDoorFrameWidth)], pose = SE3(-(barrierMiddleX - barrierDoorWidth/2 - barrierDoorFrameWidth/2), barrierZoneY[1],  ((barrierHeight-(barrierHeight - (barrierDoorHeight+barrierDoorFrameWidth)))/2)), color=barrierDoorFrameColour)
+    doorFrameRight = Cuboid([barrierDoorFrameWidth, barrierWidth, barrierHeight - (barrierHeight - barrierDoorHeight - barrierDoorFrameWidth)], pose = SE3(barrierMiddleX - barrierDoorWidth/2 - barrierDoorFrameWidth/2, barrierZoneY[1], ((barrierHeight-(barrierHeight - (barrierDoorHeight+barrierDoorFrameWidth)))/2)), color=barrierDoorFrameColour)
+    doorFrameTop = Cuboid([barrierDoorWidth, barrierWidth, barrierDoorFrameWidth], pose = SE3(barrierMiddleX, barrierZoneY[1], barrierHeight - (barrierHeight - barrierDoorHeight - barrierDoorFrameWidth/2)), color=barrierDoorFrameColour)
 
     env.add(barrierLeft)
     env.add(barrierRight)
     env.add(barrierTop)
-    env.add(barrierBottom)
 
-def constructBench():
+    env.add(barrierBottomLeft)
+    env.add(barrierBottomRight)
+    env.add(barrierBottomTop)
+
+    env.add(doorFrameLeft)
+    env.add(doorFrameRight)
+    env.add(doorFrameTop)
+
+def constructBarrierDoor():
+    global barrierDoor
+
+    barrierDoor = Cuboid([barrierDoorWidth, barrierWidth, barrierDoorHeight], pose = (SE3(barrierMiddleX, barrierZoneY[1], barrierDoorHeight/2)), color=barrierDoorColour)
+
+    env.add(barrierDoor)
+
+def openBarrierDoor(status):
+    global barrierDoor
+
+    #env.remove(barrierDoor)
+
+    if status == 1:
+        doorAngle = pi/2
+        displacementDoor = barrierDoorWidth/2
+    else:
+        doorAngle = 0
+        displacementDoor = 0
+
+    barrierDoor.pose = (
+        SE3(barrierMiddleX, barrierZoneY[1], barrierDoorHeight / 2)
+        * SE3.Rz(doorAngle)
+        * SE3.Tx(displacementDoor)
+        * SE3.Ty(-displacementDoor)
+    )
+
+    #env.add(barrierDoor)
+    
+def constructSink():
+    sinkBase = Cuboid([sinkSizeX, sinkSizeY, sinkWallThickness], pose = SE3(sinkLocationX,sinkLocationY ,(benchSizeZ - (sinkSizeZ/2)+sinkWallThickness/2)), color=sinkColour)
+    sinkLeftWall = Cuboid([sinkWallThickness, sinkSizeY, sinkSizeZ], pose = SE3((sinkLocationX - sinkSizeX/2 + sinkWallThickness/2),sinkLocationY, (benchSizeZ - (sinkSizeZ/2))), color=sinkColour)
+    sinkRightWall = Cuboid([sinkWallThickness, sinkSizeY, sinkSizeZ], pose = SE3((sinkLocationX + sinkSizeX/2 - sinkWallThickness/2),sinkLocationY, (benchSizeZ - (sinkSizeZ/2))), color=sinkColour)
+    sinkTopWall = Cuboid([sinkSizeX, sinkWallThickness, sinkSizeZ], pose = SE3(sinkLocationX,(sinkLocationY + sinkSizeY/2 - sinkWallThickness/2), (benchSizeZ - (sinkSizeZ/2))), color=sinkColour)
+    sinkBottomWall = Cuboid([sinkSizeX, sinkWallThickness, sinkSizeZ], pose = SE3(sinkLocationX,(sinkLocationY - sinkSizeY/2 + sinkWallThickness/2), (benchSizeZ - (sinkSizeZ/2))), color=sinkColour)
+    
+    env.add(sinkBase)
+    env.add(sinkLeftWall)
+    env.add(sinkRightWall)
+    env.add(sinkTopWall)
+    env.add(sinkBottomWall)
+
+def constructBacksplash():
     backSplashBack = Cuboid([benchSizeX + 2*backSplashDepth, backSplashDepth, backSplashHeight], pose = SE3(benchLocationX, benchLocationY - benchSizeY/2 - backSplashDepth/2, backSplashHeight/2), color= backSplashColour)
     backSplashLeft = Cuboid([backSplashDepth, benchSizeY, backSplashHeight], pose = SE3(benchLocationX - benchSizeX/2 - backSplashDepth/2, benchLocationY, backSplashHeight/2), color= backSplashColour)
     backSplashRight = Cuboid([backSplashDepth, benchSizeY, backSplashHeight], pose = SE3(-(benchLocationX - benchSizeX/2 - backSplashDepth/2), benchLocationY, backSplashHeight/2), color= backSplashColour)
 
+    env.add(backSplashBack)
+    env.add(backSplashLeft)
+    env.add(backSplashRight)
+
+def constructBench():
     benchBase = Cuboid([benchSizeX, benchSizeY, benchSizeZ-sinkSizeZ], pose = SE3(benchLocationX, benchLocationY, (benchSizeZ-sinkSizeZ)/2), color= benchColour)
-
     benchLeft = Cuboid([(benchLocationX + benchSizeX/2) - (sinkLocationX + sinkSizeX/2), benchSizeY, sinkSizeZ], pose = SE3(((benchLocationX + benchSizeX/2) + (sinkLocationX + sinkSizeX/2))/2, benchLocationY, benchSizeZ - sinkSizeZ/2), color= benchColour)
-
     benchRight = Cuboid([(benchLocationX + benchSizeX/2) + (sinkLocationX - sinkSizeX/2), benchSizeY, sinkSizeZ], pose = SE3(-((benchLocationX + benchSizeX/2) - (sinkLocationX - sinkSizeX/2))/2, benchLocationY, benchSizeZ - sinkSizeZ/2), color= benchColour)
-
     benchFront = Cuboid([benchSizeX, (benchLocationY + benchSizeY/2) - (sinkLocationY + sinkSizeY/2), sinkSizeZ], pose = SE3(benchLocationX, ((benchLocationY + benchSizeY/2) + (sinkLocationY + sinkSizeY/2))/2, benchSizeZ - sinkSizeZ/2), color= benchColour)
-
     benchBack = Cuboid([sinkSizeX, -(-(benchLocationY + benchSizeY/2) + (sinkLocationY + sinkSizeY/2)), sinkSizeZ], pose = SE3(sinkLocationX, ((benchLocationY - benchSizeY/2) + (sinkLocationY - sinkSizeY/2))/2, benchSizeZ - sinkSizeZ/2 + 0.000001), color= benchColour)
 
-    print(-(benchLocationY + benchSizeY/2) + (sinkLocationY + sinkSizeY/2))
     env.add(benchBase)
     env.add(benchLeft)
     env.add(benchRight)
     env.add(benchFront)
     env.add(benchBack)
-    
-    env.add(backSplashBack)
-    env.add(backSplashLeft)
-    env.add(backSplashRight)
-
-    #MAKE A LINING FOR THE SINK AND MAKE IT SILVER
-    #MAKE SURE THE TEABAGS ARE SMALLER THAN THE TEACUP
-
 
 def constructTap():
     tapBase = Cylinder(length=tapBaseHeight, radius=tapRadius, pose=SE3(sinkLocationX, sinkLocationY - sinkSizeY/2 - tapSetbackFromsink, benchSizeZ + tapBaseHeight/2), color=tapColour)
@@ -275,8 +371,21 @@ def constructTeaCup():
     env.add(teaCupBottomWall)
 
 def constructStove():
-    stove = Cylinder(length=stoveHeight, radius=stoveRadius, pose=SE3(stoveLocationX, stoveLocationY, benchSizeZ+stoveHeight/2), color=stoveColour)
-    env.add(stove)
+    stoveBase = Cuboid([stoveBaseSizeX, stoveBaseSizeY, 0.001 ], pose = SE3(stoveLocationX, stoveLocationY, benchSizeZ), color= stoveBaseColour)
+
+    stoveBottomLeft = Cylinder(length=stoveHeight, radius=stoveRadius, pose=SE3(stoveLocationX + stoveSpacingX * stoveRadius, stoveLocationY + stoveSpacingY * stoveRadius, benchSizeZ - stoveHeight/2 + 0.0011), color=stoveColourBottomLeft)
+    stoveBottomRight = Cylinder(length=stoveHeight, radius=stoveRadius, pose=SE3(stoveLocationX - stoveSpacingX * stoveRadius, stoveLocationY + stoveSpacingY * stoveRadius, benchSizeZ- stoveHeight/2 + 0.0011), color=stoveColourBottomRight)
+    stoveTopLeft = Cylinder(length=stoveHeight, radius=stoveRadius, pose=SE3(stoveLocationX + stoveSpacingX * stoveRadius, stoveLocationY - stoveSpacingY * stoveRadius, benchSizeZ- stoveHeight/2 + 0.0011), color=stoveColourTopLeft)
+    stoveTopRight = Cylinder(length=stoveHeight, radius=stoveRadius, pose=SE3(stoveLocationX - stoveSpacingX * stoveRadius, stoveLocationY - stoveSpacingY * stoveRadius, benchSizeZ- stoveHeight/2 + 0.0011), color=stoveColourTopRight)
+
+    stoveDial = Cylinder(length=stoveDialHeight, radius=stoveDialRadius, pose=SE3(stoveLocationX, stoveLocationY + stoveSpacingX * 1.4 * stoveRadius, benchSizeZ + stoveDialHeight/2), color=stoveDialColour)
+
+    env.add(stoveDial)
+    env.add(stoveBase)
+    env.add(stoveTopLeft)
+    env.add(stoveTopRight)
+    env.add(stoveBottomLeft)
+    env.add(stoveBottomRight)
 
 def constructTeaBagBox(teaBagBoxLocationX, teaBagBoxLocationY, teaBagBoxLocationZ, teaBagBoxColour):
     teaBagBoxBase = Cuboid([teaBagBoxSizeX, teaBagBoxSizeY, teaBagBoxWallThickness], pose = SE3(teaBagBoxLocationX,teaBagBoxLocationY ,(teaBagBoxLocationZ+teaBagBoxWallThickness/2)), color=teaBagBoxColour)
@@ -321,6 +430,9 @@ def constructTeaBags():
 #make some function that generates a cuboid in the teacup the height of amountOfTea, 
 # and maybe change the colour according to tea type and milk type 
 # (maybe take into account transperacy of the cup too)
+#make better stove
+
+#MAKE SURE THE TEABAGS ARE SMALLER THAN THE TEACUP
 
 # Create Swift environment
 env = swift.Swift()
@@ -330,8 +442,12 @@ env.launch(realtime=True)
 env.set_camera_pose([-3, 3, 3.5], [0.0, -2, 0])
 
 def constructObjects():
-    #constructBarrier()
-    #PUT THE BARRIER BACK INNNNN
+    constructBarrier()
+
+    constructBarrierDoor()
+
+    constructSink()
+    constructBacksplash()
     constructStove()
     constructTeaCup()
     constructBench()
@@ -343,6 +459,45 @@ def constructObjects():
 constructObjects()
 sliders()
 selectors()
+buttons()
+openBarrierDoor(1)
+
+#OPENBARRIERDOORISBROKEN
+#OPENBARRIERDOORISBROKEN
+#OPENBARRIERDOORISBROKEN
+#OPENBARRIERDOORISBROKEN
+#OPENBARRIERDOORISBROKEN
+#OPENBARRIERDOORISBROKEN
+#OPENBARRIERDOORISBROKEN
+#OPENBARRIERDOORISBROKEN
+#OPENBARRIERDOORISBROKEN
+#OPENBARRIERDOORISBROKEN
+
+openBarrierDoor(openDoor)
+x=1
+
+while x == 1:
+    
+    env.step(0.03)
+    print(openDoor)
+
+
+
+'''
+stop_event = threading.Event()
+threading.Thread(target=wait_for_enter, args=(stop_event,), daemon=True).start()
+
+
+try:
+    if x == 1:
+        buttons()
+        openBarrierDoor(openDoor)
+        env.step(0.03)
+#except KeyboardInterrupt:
+#    pass
+finally:
+    env.close()
+'''
 
 #MAKE THE TEA COLOUR SLOWLY FADE INTO THE TEA
 #a lot of the objects wont stay in expected spots if flipped around axis, could fix this, depends on what assesment needs
