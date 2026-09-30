@@ -99,6 +99,9 @@ stoveColourBottomRight  = (210, 210, 210) # light silver
 stoveColourTopLeft      = (210, 210, 210) # light silver
 stoveColourTopRight     = "red"
 
+emergencyStopColourBase     = "yellow"
+emergencyStopColourButton   = "red"
+
 sinkWallThickness = 0.005
 
 #Safety Barrier
@@ -156,6 +159,18 @@ teaBagBoxWallThickness = 0.001
 
 teaBagsPerColumn = 14
 
+# emergency Stop
+eStopBaseSizeX = 0.05
+eStopBaseSizeY = 0.025
+eStopBaseSizeZ = 0.05
+
+eStopBaseLocationX = [-1.95,    0,      1.95]
+eStopBaseLocationY = [-1,       -1,     -1]
+eStopBaseLocationZ = [0.85,     0.85,   0.85]
+
+eStopButtonRadius = 0.0125
+eStopButtonHeight = 0.0125
+
 #GUI Sliders
 setWaterTemperature = 0
 amountOfTea = 0
@@ -199,6 +214,14 @@ def buttons():
     env.add(swift.Button(lambda _: openBarrierDoor(1), desc="Open Door"))
     #env.add(swift.Button(begin, desc="START MAKING TEA!"))
     
+def constructEmergencyStop():
+    for n in range(len(eStopBaseLocationX)):
+        emergencyStopBase = Cuboid([eStopBaseSizeX, eStopBaseSizeY, eStopBaseSizeZ], pose = SE3(eStopBaseLocationX[n], eStopBaseLocationY[n], eStopBaseLocationZ[n]), color=emergencyStopColourBase)
+        emergencyStopButton = Cylinder(length = eStopButtonHeight, radius = eStopButtonRadius , pose = SE3(eStopBaseLocationX[n], eStopBaseLocationY[n] + eStopBaseSizeY/2 + eStopButtonHeight/2, eStopBaseLocationZ[n]) * SE3.Rx(pi / 2), color=emergencyStopColourButton)
+        env.add(emergencyStopBase)
+        env.add(emergencyStopButton)
+
+
 
 def sliders():
     waterTemperatureSlider = swift.Slider(
@@ -454,6 +477,7 @@ def constructObjects():
     constructMilkCartons()
     constructTap()
     constructTeaBags()
+    constructEmergencyStop()
 
 #Calling all functions
 constructObjects()
@@ -472,6 +496,8 @@ openBarrierDoor(1)
 #OPENBARRIERDOORISBROKEN
 #OPENBARRIERDOORISBROKEN
 #OPENBARRIERDOORISBROKEN
+
+env.hold()
 
 openBarrierDoor(openDoor)
 x=1
