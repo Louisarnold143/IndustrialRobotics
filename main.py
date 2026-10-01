@@ -14,6 +14,7 @@ from ir_support_extra_robots import Turtlebot3Waffle
 import threading
 from functools import partial
 from sinkArm import runSinkArm
+from tableArm import runTableArm
 
 # swift-sim 1.1.0 calls a pybullet hook on collision shapes that spatialgeometry 1.4.1
 # no longer has, so env.step() crashes. Default every shape to collision=False.
@@ -511,12 +512,23 @@ tapSpoutEnd = [sinkLocationX,                                                   
                sinkLocationY - sinkSizeY/2 - tapSetbackFromsink + tapTipLength,
                benchSizeZ + tapBaseHeight - tapRadius]
 
-runSinkArm(env, teaCupParts,
-           cupPickBase = SE3(teaCupLocationX, teaCupLocationY, teaCupLocationZ),
-           tapSpoutEnd = tapSpoutEnd,
-           cupHeight = teaCupSizeZ,
-           cupWidth = teaCupSizeX,
-           mountPose = sinkArmMount)
+sinkResult = runSinkArm(env, teaCupParts,
+                        cupPickBase = SE3(teaCupLocationX, teaCupLocationY, teaCupLocationZ),
+                        tapSpoutEnd = tapSpoutEnd,
+                        cupHeight = teaCupSizeZ,
+                        cupWidth = teaCupSizeX,
+                        mountPose = sinkArmMount)
+
+if sinkResult is not None:
+    sinkRobot, cupFilled = sinkResult
+    tableArmMount = SE3(0.8, benchLocationY - benchSizeY/2, sinkArmMountHeight) * SE3.Rx(-pi/2)
+    cupPlaceBase = SE3(0.4, -1.35, benchSizeZ)
+    runTableArm(env, teaCupParts, cupFilled,
+                cupHeight = teaCupSizeZ,
+                cupWidth = teaCupSizeX,
+                mountPose = tableArmMount,
+                placeBase = cupPlaceBase,
+                sinkArm = sinkRobot)
 
 #OPENBARRIERDOORISBROKEN
 #OPENBARRIERDOORISBROKEN
