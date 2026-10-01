@@ -12,8 +12,15 @@ import roboticstoolbox as rtb
 from spatialgeometry import Cuboid, Cylinder
 from ir_support_extra_robots import Turtlebot3Waffle
 import threading
+from functools import partial
+from sinkArm import runSinkArm
 
-# The project will have 3 Omron TM5-700 robotic arms that will make 
+# swift-sim 1.1.0 calls a pybullet hook on collision shapes that spatialgeometry 1.4.1
+# no longer has, so env.step() crashes. Default every shape to collision=False.
+Cuboid = partial(Cuboid, collision=False)
+Cylinder = partial(Cylinder, collision=False)
+
+# The project will have jaka mini cobo robotic arms that will make 
 # the user a cup of tea, with the user being able to select aspects 
 # relating to the cup of tea such as teabag type, milk type, 
 # quantities of milk/water, and temperature the water heats up to. 
@@ -54,8 +61,8 @@ teaCupSizeY = 0.05
 teaCupSizeZ = 0.1
 teaCupWallThickness = 0.005
 
-teaCupLocationX = 0.75
-teaCupLocationY = -1.5
+teaCupLocationX = 1.78
+teaCupLocationY = -1.55
 teaCupLocationZ = 0.9
 
 #Bench (including sink and tap)
@@ -210,6 +217,13 @@ def wait_for_enter(stop_event):
     input("Press Enter in this terminal when you are finished.\n")
     stop_event.set()
 
+def setGlobal(name, options=None):
+    # GUI callback that stores the control's value in the named global
+    # (Select controls send the option index, so look the name up in options)
+    def callback(value):
+        globals()[name] = options[int(value)] if options else float(value)
+    return callback
+
 def buttons():
     env.add(swift.Button(lambda _: openBarrierDoor(1), desc="Open Door"))
     #env.add(swift.Button(begin, desc="START MAKING TEA!"))
@@ -225,7 +239,7 @@ def constructEmergencyStop():
 
 def sliders():
     waterTemperatureSlider = swift.Slider(
-        setWaterTemperature,
+        setGlobal("setWaterTemperature"),
         min=5,
         max=95,
         step=1,
@@ -236,7 +250,7 @@ def sliders():
     env.add(waterTemperatureSlider)
 
     amountOfTeaSlider = swift.Slider(
-        amountOfTea,
+        setGlobal("amountOfTea"),
         min=0,
         max=500,
         step=1,
@@ -247,7 +261,7 @@ def sliders():
     env.add(amountOfTeaSlider)
 
     proportionOfMilkInTeaSlider = swift.Slider(
-        proportionOfMilkInTea,
+        setGlobal("proportionOfMilkInTea"),
         min=0,
         max=100,
         step=1,
@@ -259,21 +273,21 @@ def sliders():
 
 def selectors():
     teaBagSelector = swift.Select(
-        selectedTeaBag,
+        setGlobal("selectedTeaBag", teaBagOptions),
         options=teaBagOptions,
         desc="Select Tea Bag"
     )
     env.add(teaBagSelector)
 
     milkTypeSelector = swift.Select(
-        selectedMilkType,
+        setGlobal("selectedMilkType", milkTypeOptions),
         options=milkTypeOptions,
         desc="Select Milk Type"
     )
     env.add(milkTypeSelector)
 
     stoveSelector = swift.Select(
-        selectedStove,
+        setGlobal("selectedStove", stoves),
         options=stoves,
         desc="Select Stove"
     )
@@ -381,6 +395,7 @@ def constructTap():
     env.add(tapTop)
 
 def constructTeaCup():
+    global teaCupParts
     teaCupBase = Cuboid([teaCupSizeX, teaCupSizeY, teaCupWallThickness], pose = SE3(teaCupLocationX,teaCupLocationY ,(teaCupLocationZ+teaCupWallThickness/2)), color=teaCupColour)
     teaCupLeftWall = Cuboid([teaCupWallThickness, teaCupSizeY, teaCupSizeZ], pose = SE3((teaCupLocationX - teaCupSizeX/2 + teaCupWallThickness/2),teaCupLocationY, (teaCupLocationZ + teaCupSizeZ/2)), color=teaCupColour)
     teaCupRightWall = Cuboid([teaCupWallThickness, teaCupSizeY, teaCupSizeZ], pose = SE3((teaCupLocationX + teaCupSizeX/2 + teaCupWallThickness/2),teaCupLocationY, (teaCupLocationZ + teaCupSizeZ/2)), color=teaCupColour)
@@ -392,6 +407,8 @@ def constructTeaCup():
     env.add(teaCupRightWall)
     env.add(teaCupTopWall)
     env.add(teaCupBottomWall)
+
+    teaCupParts = [teaCupBase, teaCupLeftWall, teaCupRightWall, teaCupTopWall, teaCupBottomWall]
 
 def constructStove():
     stoveBase = Cuboid([stoveBaseSizeX, stoveBaseSizeY, 0.001 ], pose = SE3(stoveLocationX, stoveLocationY, benchSizeZ), color= stoveBaseColour)
@@ -485,6 +502,21 @@ sliders()
 selectors()
 buttons()
 openBarrierDoor(1)
+
+# Sink arm - back panel split into 4 arm slots, sink arm takes the leftmost (+x) one
+backPanelWidth = benchSizeX + 2*backSplashDepth
+sinkArmMountHeight = 1.3
+sinkArmMount = SE3(benchLocationX + backPanelWidth*3/8, benchLocationY - benchSizeY/2, sinkArmMountHeight) * SE3.Rx(-pi/2)
+tapSpoutEnd = [sinkLocationX,                                                   # underside of the spout tip
+               sinkLocationY - sinkSizeY/2 - tapSetbackFromsink + tapTipLength,
+               benchSizeZ + tapBaseHeight - tapRadius]
+
+runSinkArm(env, teaCupParts,
+           cupPickBase = SE3(teaCupLocationX, teaCupLocationY, teaCupLocationZ),
+           tapSpoutEnd = tapSpoutEnd,
+           cupHeight = teaCupSizeZ,
+           cupWidth = teaCupSizeX,
+           mountPose = sinkArmMount)
 
 #OPENBARRIERDOORISBROKEN
 #OPENBARRIERDOORISBROKEN
