@@ -13,7 +13,8 @@ from spatialgeometry import Cuboid, Cylinder
 from ir_support_extra_robots import Turtlebot3Waffle
 import threading
 from functools import partial
-from sinkArm import runSinkArm
+from sinkArmDatis import runSinkArm
+from stoveArmLouis import runStoveArm, JakaMiniCobo
 from tableArm import runTableArm
 
 # swift-sim 1.1.0 calls a pybullet hook on collision shapes that spatialgeometry 1.4.1
@@ -236,8 +237,6 @@ def constructEmergencyStop():
         env.add(emergencyStopBase)
         env.add(emergencyStopButton)
 
-
-
 def sliders():
     waterTemperatureSlider = swift.Slider(
         setGlobal("setWaterTemperature"),
@@ -250,27 +249,27 @@ def sliders():
     )
     env.add(waterTemperatureSlider)
 
-    amountOfTeaSlider = swift.Slider(
+    amountOfWaterSlider = swift.Slider(
         setGlobal("amountOfTea"),
         min=0,
         max=500,
         step=1,
         value=0.0,
-        desc="Amount of Tea",
+        desc="Amount of Water",
         unit=" mL",
     )
-    env.add(amountOfTeaSlider)
+    env.add(amountOfWaterSlider)
 
-    proportionOfMilkInTeaSlider = swift.Slider(
+    amountOfMilkSlider = swift.Slider(
         setGlobal("proportionOfMilkInTea"),
         min=0,
         max=100,
         step=1,
         value=0.0,
-        desc="Proportion of Milk in Tea",
-        unit=" %",
+        desc="Amount of Milk",
+        unit=" mL",
     )
-    env.add(proportionOfMilkInTeaSlider)
+    env.add(amountOfMilkSlider)
 
 def selectors():
     teaBagSelector = swift.Select(
@@ -512,6 +511,10 @@ tapSpoutEnd = [sinkLocationX,                                                   
                sinkLocationY - sinkSizeY/2 - tapSetbackFromsink + tapTipLength,
                benchSizeZ + tapBaseHeight - tapRadius]
 
+print("fdsjhklfjdsaklfjdkasl")
+print(benchLocationY - benchSizeY/2)
+
+"""
 sinkResult = runSinkArm(env, teaCupParts,
                         cupPickBase = SE3(teaCupLocationX, teaCupLocationY, teaCupLocationZ),
                         tapSpoutEnd = tapSpoutEnd,
@@ -519,6 +522,32 @@ sinkResult = runSinkArm(env, teaCupParts,
                         cupWidth = teaCupSizeX,
                         mountPose = sinkArmMount)
 
+#runSinkArm()
+"""
+
+# Stove arm
+stoveArmMountHeight = 1.3
+#stoveArmMount = SE3(-0.45, benchLocationY - benchSizeY/2, sinkArmMountHeight) * SE3.Rx(-pi/2)
+stoveArmMount = SE3(0,0,0)
+
+print("MADE IT HEREHREHEKJFKLDSJKLFJDSLKJFDLSKJFKLDSJFDS")
+
+stoveArm = JakaMiniCobo(base=stoveArmMount)
+#stoveArm.q = [0, 0, 0, 0, 0, 0]
+stoveArm.add_to_env(env)
+
+print("MADE IT FURTHERRRRRRJKLFDSJLFKDSJKLFJDSLKJFKLDSJLKFDSJLKFJDSFDSJKFDSJKFDS")
+
+stoveResult = runStoveArm(env, teaCupParts,
+                        cupPickBase = SE3(teaCupLocationX, teaCupLocationY, teaCupLocationZ),
+                        tapSpoutEnd = tapSpoutEnd,
+                        cupHeight = teaCupSizeZ,
+                        cupWidth = teaCupSizeX,
+                        mountPose = stoveArmMount)
+
+
+
+"""
 if sinkResult is not None:
     sinkRobot, cupFilled = sinkResult
     tableArmMount = SE3(0.8, benchLocationY - benchSizeY/2, sinkArmMountHeight) * SE3.Rx(-pi/2)
@@ -529,6 +558,7 @@ if sinkResult is not None:
                 mountPose = tableArmMount,
                 placeBase = cupPlaceBase,
                 sinkArm = sinkRobot)
+"""
 
 #OPENBARRIERDOORISBROKEN
 #OPENBARRIERDOORISBROKEN
@@ -550,8 +580,6 @@ while x == 1:
     
     env.step(0.03)
     print(openDoor)
-
-
 
 '''
 stop_event = threading.Event()
