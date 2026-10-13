@@ -10,7 +10,15 @@ from spatialgeometry import Cuboid, Cylinder
 
 from scipy.spatial import cKDTree
 
-from sinkArmDatis import JakaZu5, meshCollisionPoints, armPoints, homeQ, gripYaw
+from sinkArmDatis import armPoints as sinkArmPoints
+from gp4_robot import GP4Robot, GP4_HOME
+
+
+def armPoints(arm, q):
+    if isinstance(arm, GP4Robot):
+        frames = arm.frames(q)
+        return np.vstack([pts @ f.R.T + f.t for pts, f in zip(arm.meshPoints[1:], frames[1:])])
+    return sinkArmPoints(arm, q)
 
 steps = 45
 
@@ -20,6 +28,7 @@ collisionPad = 0.01
 
 maxTilt = np.deg2rad(15)
 
+
 def boxCorners(shape, pose):
     if isinstance(shape, Cuboid):
         half = np.asarray(shape.scale, dtype=float) / 2
@@ -28,6 +37,7 @@ def boxCorners(shape, pose):
     corners = np.array([[x, y, z] for x in (-1, 1) for y in (-1, 1) for z in (-1, 1)]) * half
     T = np.asarray(pose)
     return corners @ T[:3, :3].T + T[:3, 3]
+
 
 def obstacleBoxes(env, ignore, centre, radius=1.45):
     ignored = {id(obj) for obj in ignore}
@@ -41,6 +51,7 @@ def obstacleBoxes(env, ignore, centre, radius=1.45):
             lows.append(lo)
             highs.append(hi)
     return np.asarray(lows, dtype=float).reshape(-1, 3), np.asarray(highs, dtype=float).reshape(-1, 3)
+
 
 def protectSpout(boxes, cupBase, extra=0.025):
     low, high = boxes
@@ -69,6 +80,7 @@ def protectSpout(boxes, cupBase, extra=0.025):
         print('Table arm: tap spout not recognised; standard obstacle collision checks remain active')
     return low, high
 
+
 def hits(points, boxes, pad):
     low, high = boxes
     if len(low) == 0 or len(points) == 0:
@@ -79,6 +91,7 @@ def hits(points, boxes, pad):
         if inside.all(axis=2).any():
             return True
     return False
+
 
 def tabletopSupport(boxes, placeBase, cupWidth):
     p = placeBase.t
@@ -93,11 +106,13 @@ def tabletopSupport(boxes, placeBase, cupWidth):
     )
     return mask
 
+
 def jointLimits(arm, q):
     limits = np.asarray(arm.qlim, dtype=float)
     if limits.shape != (2, arm.n):
         return True
     return np.all(q >= limits[0] - 1e-6) and np.all(q <= limits[1] + 1e-6)
+
 
 def closestAngles(arm, q, previous):
     q = np.asarray(q, dtype=float).copy()
@@ -109,6 +124,7 @@ def closestAngles(arm, q, previous):
             q[i] = min(allowed, key=lambda v: abs(v - previous[i]))
     return q
 
+
 def gripPose(cupBase, cupWidth, cupHeight, yaw=-pi/2, gripFraction=0.42):
     return (
         cupBase
@@ -117,11 +133,13 @@ def gripPose(cupBase, cupWidth, cupHeight, yaw=-pi/2, gripFraction=0.42):
         * SE3.Ry(-pi/2)
     )
 
+
 def cupBaseFromParts(parts):
     base = parts[0]
     xyz = SE3(base.T).t.copy()
     xyz[2] -= float(np.asarray(base.scale)[2]) / 2
     return SE3(*xyz)
+
 
 def collision(arm, q, boxes, carried, sinkTree=None, sinkClear=0.045, placeBase=None, cupWidth=0):
     if not jointLimits(arm, q):
@@ -168,12 +186,14 @@ def collision(arm, q, boxes, carried, sinkTree=None, sinkClear=0.045, placeBase=
             return 'cup/sink arm'
     return None
 
+
 def checkTrajectory(arm, trajectory, boxes, carried, sinkTree=None, placeBase=None, cupWidth=0):
     for q in trajectory:
         reason = collision(arm, q, boxes, carried, sinkTree, placeBase=placeBase, cupWidth=cupWidth)
         if reason is not None:
             return reason
     return None
+
 
 def inverse(arm, target, q0):
     result = arm.ikine_LM(target, q0=q0, slimit=300)
@@ -182,9 +202,11 @@ def inverse(arm, target, q0):
     q = closestAngles(arm, result.q, q0)
     return q if jointLimits(arm, q) else None
 
+
 def edgePath(a, b, speed=0.12):
     n = max(5, int(np.ceil(np.max(np.abs(np.asarray(b) - np.asarray(a))) / speed)) + 1)
     return rtb.jtraj(a, b, n).q
+
 
 def rrtConnect(arm, goal, boxes, carried, sinkTree=None, placeBase=None, cupWidth=0, tries=135):
     start = np.asarray(arm.q, dtype=float).copy()
@@ -196,6 +218,7 @@ def rrtConnect(arm, goal, boxes, carried, sinkTree=None, placeBase=None, cupWidt
     limits = np.asarray(arm.qlim, dtype=float)
     trees = [dict(points=[start], parents=[-1], root='start'),
              dict(points=[np.asarray(goal, dtype=float)], parents=[-1], root='goal')]
+
     def extend(tree, target):
         points = np.asarray(tree['points'])
         parent = int(np.argmin(np.linalg.norm(points - target, axis=1)))
@@ -211,12 +234,14 @@ def rrtConnect(arm, goal, boxes, carried, sinkTree=None, placeBase=None, cupWidt
         tree['points'].append(nextQ)
         tree['parents'].append(parent)
         return len(tree['points']) - 1
+
     def path(tree, i):
         chain = []
         while i != -1:
             chain.append(tree['points'][i])
             i = tree['parents'][i]
         return chain[::-1]
+
     for trial in range(tries):
         treeA, treeB = trees[trial % 2], trees[(trial + 1) % 2]
         sample = treeB['points'][0] if trial % 5 == 0 else rng.uniform(limits[0], limits[1])
@@ -243,6 +268,7 @@ def rrtConnect(arm, goal, boxes, carried, sinkTree=None, placeBase=None, cupWidt
         if checkTrajectory(arm, result, boxes, carried, sinkTree, placeBase, cupWidth) is None:
             return result
     return None
+
 
 def solveMove(arm, target, boxes, carried=(), sinkTree=None, linear=False,
               placeBase=None, cupWidth=0, allowDetour=True):
@@ -271,7 +297,7 @@ def solveMove(arm, target, boxes, carried=(), sinkTree=None, linear=False,
             pieces.append(part)
             previous = q
         return np.vstack(pieces), None
-    seeds = [start, np.asarray(homeQ, dtype=float)] + [arm.random_q() for _ in range(8 if not allowDetour else 18)]
+    seeds = [start, np.asarray(GP4_HOME, dtype=float)] + [arm.random_q() for _ in range(8 if not allowDetour else 18)]
     errors = []
     goals = []
     for seed in seeds:
@@ -296,6 +322,7 @@ def solveMove(arm, target, boxes, carried=(), sinkTree=None, linear=False,
                 return trajectory, None
     return None, errors[-1] if errors else 'inverse kinematics'
 
+
 def move(env, arm, basePose, cupWidth, cupHeight, boxes, carried=(), sinkTree=None, linear=False, placeBase=None, yaw=-pi/2, gripFraction=0.42):
     target = gripPose(basePose, cupWidth, cupHeight, yaw, gripFraction)
     trajectory, reason = solveMove(arm, target, boxes, carried, sinkTree, linear, placeBase, cupWidth)
@@ -312,10 +339,19 @@ def move(env, arm, basePose, cupWidth, cupHeight, boxes, carried=(), sinkTree=No
         env.step(dt)
     return True
 
+
 def runTableArm(env, cupParts, cupFilled, cupHeight, cupWidth, mountPose, placeBase, sinkArm=None):
-    arm = JakaZu5(base=mountPose)
-    arm.q = np.asarray(homeQ, dtype=float)
-    arm.meshPoints = meshCollisionPoints(arm)
+    handoff = np.array([1.12, -1.32, 1.10], dtype=float)
+    if np.linalg.norm(np.asarray(mountPose.t, dtype=float) - handoff) > 0.55:
+        print(
+            'Table arm: requested GP4 wall mount is beyond the sink handoff reach '
+            f'({np.linalg.norm(np.asarray(mountPose.t, dtype=float) - handoff):.2f} m from the unchanged handoff). '
+            'A bracketed forward mount, relocating the handoff, or a longer-reach robot will be required.',
+            flush=True,
+        )
+
+    arm = GP4Robot(base=mountPose)
+    arm.q = np.asarray(GP4_HOME, dtype=float)
     ignored = list(cupParts)
     if cupFilled is not None:
         ignored.append(cupFilled)
@@ -328,14 +364,21 @@ def runTableArm(env, cupParts, cupFilled, cupHeight, cupWidth, mountPose, placeB
     obstacles = protectSpout(obstacleBoxes(env, ignored, arm.base.t), cupBase)
     if collision(arm, arm.q, obstacles, ()) is not None:
         rng = np.random.default_rng(8)
-        original = np.asarray(homeQ, dtype=float)
+        original = np.asarray(GP4_HOME, dtype=float)
         valid = []
         for _ in range(120):
             candidate = original + rng.normal(0, 0.55, arm.n)
             if jointLimits(arm, candidate) and collision(arm, candidate, obstacles, ()) is None:
                 valid.append(candidate)
         if not valid:
-            print('Table arm: the starting configuration intersects the bench/workcell; check its mount')
+            print('Table arm: no collision-free starting pose found; checking precise obstacles')
+            frames = arm.frames(arm.q)
+            low, high = obstacles
+            for link_index, (mesh, frame) in enumerate(zip(arm.meshPoints[1:], frames[1:]), start=1):
+                points = mesh @ frame.R.T + frame.t
+                for obstacle_index, (lo, hi) in enumerate(zip(low, high)):
+                    if hits(points, (lo.reshape(1, 3), hi.reshape(1, 3)), collisionPad):
+                        print(f'Table arm: GP4 moving link {link_index} intersects obstacle {obstacle_index}, bounds {np.round(lo,3)} to {np.round(hi,3)}')
             arm.add_to_env(env)
             return None
         arm.q = min(valid, key=lambda q: np.linalg.norm(q - original))
@@ -542,8 +585,6 @@ def runTableArm(env, cupParts, cupFilled, cupHeight, cupWidth, mountPose, placeB
                         shape.T = flange * offset
                     env.step(dt)
                 actualBase = cupBaseFromParts(cupParts)
-                # After releasing, the cup and its water fall vertically together.
-                # Only accept a landing whose final pieces do not intersect non-support obstacles.
                 landingTransform = SE3(
                     drop.t[0] - actualBase.t[0],
                     drop.t[1] - actualBase.t[1],

@@ -526,11 +526,7 @@ sinkResult = runSinkArm(
 )
 if sinkResult is not None:
     sinkRobot, cupFilled = sinkResult
-    tableArmMount = SE3(
-    0.95,
-    benchLocationY - benchSizeY/2,
-    sinkArmMountHeight
-) * SE3.Rx(-pi/2)
+    tableArmMount = SE3(0.70, -2.00, 1.00) * SE3.Rx(-pi/2)
     cupPlaceBase = SE3(0.4, -1.35, benchSizeZ)
     runTableArm(env, teaCupParts, cupFilled,
                 cupHeight = teaCupSizeZ,
