@@ -1,6 +1,7 @@
 import os
 from math import pi
 import numpy as np
+from scipy.spatial import cKDTree
 import roboticstoolbox as rtb
 from spatialmath import SE3
 from spatialgeometry import Cuboid, Cylinder
@@ -9,9 +10,11 @@ from ir_support.robots.UTSMeshRobot import UTSMeshRobot
 meshDir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "JakaZu5")
 
 jakaGrey = (216, 216, 216)
+jakaWhite = (235, 235, 235)
+jakaRed = (200, 25, 35)
 
 class JakaZu5(UTSMeshRobot):
-    link_colors = [jakaGrey] * 7
+    link_colors = [jakaGrey, jakaRed, jakaWhite, jakaWhite, jakaRed, jakaRed, jakaGrey]
 
     def __init__(self, base=None):
         d      = [0.12015, 0,    0,      -0.114, 0.1135, 0.107]
@@ -51,6 +54,7 @@ gripHeight = 0.7
 maxCarryTilt = np.radians(15)
 ikAttempts = 30
 detourAttempts = 10
+otherArmClear = 0.045
 
 def stlVertices(path):
     data = open(path, "rb").read()
@@ -92,6 +96,13 @@ def armPoints(arm, q):
     frames = arm._get_transforms(q)
     return np.vstack([pts @ frames[i + 1][:3, :3].T + frames[i + 1][:3, 3] for i, pts in enumerate(arm.meshPoints)])
 
+def otherArmPoints(other):
+    return other.arm_points(other.q) if hasattr(other, "arm_points") else armPoints(other, other.q)
+
+def nearOtherArm(arm, points):
+    tree = getattr(arm, "otherTree", None)
+    return tree is not None and np.any(tree.query(points, k=1)[0] < otherArmClear)
+
 def hits(points, boxes, pad):
     lo, hi = boxes
     if len(lo) == 0:
@@ -101,12 +112,14 @@ def hits(points, boxes, pad):
 
 def pathCollides(arm, traj, boxes, carried):
     for q in traj:
-        if hits(armPoints(arm, q), boxes, collisionPad):
+        points = armPoints(arm, q)
+        if hits(points, boxes, collisionPad) or nearOtherArm(arm, points):
             return True
         flange = arm.fkine(q)
         for shape, offset in carried:
             carriedPose = flange * offset
-            if hits(boxCorners(shape, carriedPose), boxes, -0.002):
+            corners = boxCorners(shape, carriedPose)
+            if hits(corners, boxes, -0.002) or nearOtherArm(arm, corners):
                 return True
             if carriedPose.R[2, 2] < np.cos(maxCarryTilt):
                 return True
@@ -157,7 +170,6 @@ def gripPose(cupBase, cupWidth, cupHeight):
 def moveThrough(env, arm, poses, boxes, carried=()):
     traj = planPath(arm, poses, boxes, carried)
     if traj is None:
-        print(f"Sink arm: collision predicted on every path to {np.round(poses[-1].t, 3)} - stopping")
         return False
     for q in traj:
         arm.q = q
@@ -167,11 +179,18 @@ def moveThrough(env, arm, poses, boxes, carried=()):
         env.step(dt)
     return True
 
-def runSinkArm(env, cupParts, cupPickBase, tapSpoutEnd, cupHeight, cupWidth, mountPose):
+def makeSinkArm(mountPose):
     arm = JakaZu5(base=mountPose)
     arm.q = homeQ
     arm.meshPoints = meshCollisionPoints(arm)
-    arm.add_to_env(env)
+    return arm
+
+def runSinkArm(env, cupParts, cupPickBase, tapSpoutEnd, cupHeight, cupWidth, mountPose, arm=None, otherArms=()):
+    if arm is None:
+        arm = makeSinkArm(mountPose)
+        arm.add_to_env(env)
+    others = [other for other in otherArms if other is not None]
+    arm.otherTree = cKDTree(np.vstack([otherArmPoints(other) for other in others])) if others else None
 
     boxes = obstacleBoxes(env, ignore=cupParts, centre=arm.fkine_all(arm.q)[1].t)
     grip = lambda cupBase: gripPose(cupBase, cupWidth, cupHeight)
@@ -201,8 +220,6 @@ def runSinkArm(env, cupParts, cupPickBase, tapSpoutEnd, cupHeight, cupWidth, mou
         SE3(1.20, -1.30, 1.12),
     ]
     exitBase = SE3(cupHoldBase.t[0], -1.19, cupHoldBase.t[2])
-    moved = False
-    print('Sink arm: moving filled cup to the clear handoff region', flush=True)
     for handoff in handoffBases:
         trajectory = planPath(arm, [grip(exitBase), grip(handoff)], boxes, filledCarry)
         if trajectory is None:
@@ -213,9 +230,5 @@ def runSinkArm(env, cupParts, cupPickBase, tapSpoutEnd, cupHeight, cupWidth, mou
             for shape, offset in filledCarry:
                 shape.T = newFlange * offset
             env.step(dt)
-        print(f'Sink arm: cup ready for handoff at {np.round(handoff.t, 3)}', flush=True)
-        moved = True
         break
-    if not moved:
-        print('Sink arm: no safe handoff path found; cup remains under tap', flush=True)
     return arm, cupFilled

@@ -1,3 +1,6 @@
+import warnings
+# Hide library warnings (e.g. spatialgeometry's _propogate_scene_tree FutureWarning) from the terminal
+warnings.filterwarnings('ignore')
 from math import pi
 import numpy as np
 import swift
@@ -13,9 +16,10 @@ from spatialgeometry import Cuboid, Cylinder
 from ir_support_extra_robots import Turtlebot3Waffle
 import threading
 from functools import partial
-from sinkArmDatis import runSinkArm
+from sinkArmDatis import runSinkArm, makeSinkArm
 from stoveArmLouis import runStoveArm, JakaMiniCobo
-from tableArm import runTableArm
+from tableArmArnoe import runTableArm, GP4Robot, GP4_WAIT
+from ur3eArm import runUR3eArm, makeUR3e
 
 # swift-sim 1.1.0 calls a pybullet hook on collision shapes that spatialgeometry 1.4.1
 # no longer has, so env.step() crashes. Default every shape to collision=False.
@@ -458,14 +462,12 @@ def constructMilkCartons():
     for row in milkTypeOptionsWithColours:
         milkCartonMaker(milkType = row[0], cartonColour = row[1])
         milkCartonWorkingNumber = milkCartonWorkingNumber + 1
-        print(milkCartonWorkingNumber)
 
 def constructTeaBags():
     global teaBagWorkingNumber
     for row in teaBagOptionsWithColours:
         teaBagMaker(teaBag = row[0], bagColour = row[1])
         teaBagWorkingNumber = teaBagWorkingNumber + 1
-        print(teaBagWorkingNumber)
 
 #make some function that generates a cuboid in the teacup the height of amountOfTea, 
 # and maybe change the colour according to tea type and milk type 
@@ -511,9 +513,23 @@ tapSpoutEnd = [sinkLocationX,                                                   
                sinkLocationY - sinkSizeY/2 - tapSetbackFromsink + tapTipLength,
                benchSizeZ + tapBaseHeight - tapRadius]
 
-print("fdsjhklfjdsaklfjdkasl")
-print(benchLocationY - benchSizeY/2)
 
+
+# GP4 and UR3e share the sink arm's wall and height. The GP4 is spaced from the sink arm by twice
+# the sink arm's gap to the side wall, and the UR3e is spaced from the GP4 by that same distance.
+sinkArmX = benchLocationX + backPanelWidth*3/8
+sinkArmWallGap = (benchLocationX + benchSizeX/2) - sinkArmX
+tableArmMount = SE3(sinkArmX - 2*sinkArmWallGap, benchLocationY - benchSizeY/2, sinkArmMountHeight) * SE3.Rx(-pi/2)
+ur3eMount = SE3(tableArmMount.t[0] - 2*sinkArmWallGap, benchLocationY - benchSizeY/2, sinkArmMountHeight) * SE3.Rx(-pi/2)
+
+# All arms are in the scene from the start, waiting in their rest poses until their turn
+sinkRobot = makeSinkArm(sinkArmMount)
+tableRobot = GP4Robot(base=tableArmMount)
+tableRobot.q = GP4_WAIT
+ur3eRobot = makeUR3e(ur3eMount)
+sinkRobot.add_to_env(env)
+tableRobot.add_to_env(env)
+ur3eRobot.add_to_env(env)
 
 sinkResult = runSinkArm(
     env,
@@ -522,18 +538,36 @@ sinkResult = runSinkArm(
     tapSpoutEnd=tapSpoutEnd,
     cupHeight=teaCupSizeZ,
     cupWidth=teaCupSizeX,
-    mountPose=sinkArmMount
+    mountPose=sinkArmMount,
+    arm=sinkRobot,
+    otherArms=[tableRobot]
 )
 if sinkResult is not None:
     sinkRobot, cupFilled = sinkResult
-    tableArmMount = SE3(0.70, -2.00, 1.00) * SE3.Rx(-pi/2)
-    cupPlaceBase = SE3(0.4, -1.35, benchSizeZ)
-    runTableArm(env, teaCupParts, cupFilled,
-                cupHeight = teaCupSizeZ,
-                cupWidth = teaCupSizeX,
-                mountPose = tableArmMount,
-                placeBase = cupPlaceBase,
-                sinkArm = sinkRobot)
+    # Keep the sim open if an arm crashes, so its last pose can be inspected
+    tableResult = None
+    try:
+        tableResult = runTableArm(env, teaCupParts, cupFilled,
+                                  cupHeight = teaCupSizeZ,
+                                  cupWidth = teaCupSizeX,
+                                  mountPose = tableArmMount,
+                                  sinkArm = sinkRobot,
+                                  arm = tableRobot,
+                                  otherArms = [ur3eRobot])
+    except Exception:
+        pass
+
+    if tableResult is not None:
+        try:
+            runUR3eArm(env, teaCupParts, cupFilled,
+                       cupHeight = teaCupSizeZ,
+                       cupWidth = teaCupSizeX,
+                       mountPose = ur3eMount,
+                       gp4Arm = tableRobot,
+                       sinkArm = sinkRobot,
+                       arm = ur3eRobot)
+        except Exception:
+            pass
 #runSinkArm()
 
 
@@ -586,7 +620,6 @@ x=1
 while x == 1:
     
     env.step(0.03)
-    print(openDoor)
 
 '''
 stop_event = threading.Event()
