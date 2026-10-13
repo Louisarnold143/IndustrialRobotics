@@ -192,4 +192,30 @@ def runSinkArm(env, cupParts, cupPickBase, tapSpoutEnd, cupHeight, cupWidth, mou
                          color="blue", collision=False)
     env.add(cupFilled)
     env.step(dt)
+
+    flange = arm.fkine(arm.q)
+    filledCarry = carried + [(cupFilled, flange.inv() * SE3(cupFilled.T))]
+    handoffBases = [
+        SE3(1.12, -1.32, 1.10),
+        SE3(1.16, -1.28, 1.08),
+        SE3(1.20, -1.30, 1.12),
+    ]
+    exitBase = SE3(cupHoldBase.t[0], -1.19, cupHoldBase.t[2])
+    moved = False
+    print('Sink arm: moving filled cup to the clear handoff region', flush=True)
+    for handoff in handoffBases:
+        trajectory = planPath(arm, [grip(exitBase), grip(handoff)], boxes, filledCarry)
+        if trajectory is None:
+            continue
+        for q in trajectory:
+            arm.q = q
+            newFlange = arm.fkine(q)
+            for shape, offset in filledCarry:
+                shape.T = newFlange * offset
+            env.step(dt)
+        print(f'Sink arm: cup ready for handoff at {np.round(handoff.t, 3)}', flush=True)
+        moved = True
+        break
+    if not moved:
+        print('Sink arm: no safe handoff path found; cup remains under tap', flush=True)
     return arm, cupFilled

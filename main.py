@@ -514,43 +514,23 @@ tapSpoutEnd = [sinkLocationX,                                                   
 print("fdsjhklfjdsaklfjdkasl")
 print(benchLocationY - benchSizeY/2)
 
-"""
-sinkResult = runSinkArm(env, teaCupParts,
-                        cupPickBase = SE3(teaCupLocationX, teaCupLocationY, teaCupLocationZ),
-                        tapSpoutEnd = tapSpoutEnd,
-                        cupHeight = teaCupSizeZ,
-                        cupWidth = teaCupSizeX,
-                        mountPose = sinkArmMount)
 
-#runSinkArm()
-"""
-
-# Stove arm
-stoveArmMountHeight = 1.3
-#stoveArmMount = SE3(-0.45, benchLocationY - benchSizeY/2, sinkArmMountHeight) * SE3.Rx(-pi/2)
-stoveArmMount = SE3(0,0,0)
-
-print("MADE IT HEREHREHEKJFKLDSJKLFJDSLKJFDLSKJFKLDSJFDS")
-
-stoveArm = JakaMiniCobo(base=stoveArmMount)
-#stoveArm.q = [0, 0, 0, 0, 0, 0]
-stoveArm.add_to_env(env)
-
-print("MADE IT FURTHERRRRRRJKLFDSJLFKDSJKLFJDSLKJFKLDSJLKFDSJLKFJDSFDSJKFDSJKFDS")
-
-stoveResult = runStoveArm(env, teaCupParts,
-                        cupPickBase = SE3(teaCupLocationX, teaCupLocationY, teaCupLocationZ),
-                        tapSpoutEnd = tapSpoutEnd,
-                        cupHeight = teaCupSizeZ,
-                        cupWidth = teaCupSizeX,
-                        mountPose = stoveArmMount)
-
-
-
-"""
+sinkResult = runSinkArm(
+    env,
+    teaCupParts,
+    cupPickBase=SE3(teaCupLocationX, teaCupLocationY, teaCupLocationZ),
+    tapSpoutEnd=tapSpoutEnd,
+    cupHeight=teaCupSizeZ,
+    cupWidth=teaCupSizeX,
+    mountPose=sinkArmMount
+)
 if sinkResult is not None:
     sinkRobot, cupFilled = sinkResult
-    tableArmMount = SE3(0.8, benchLocationY - benchSizeY/2, sinkArmMountHeight) * SE3.Rx(-pi/2)
+    tableArmMount = SE3(
+    0.95,
+    benchLocationY - benchSizeY/2,
+    sinkArmMountHeight
+) * SE3.Rx(-pi/2)
     cupPlaceBase = SE3(0.4, -1.35, benchSizeZ)
     runTableArm(env, teaCupParts, cupFilled,
                 cupHeight = teaCupSizeZ,
@@ -558,7 +538,38 @@ if sinkResult is not None:
                 mountPose = tableArmMount,
                 placeBase = cupPlaceBase,
                 sinkArm = sinkRobot)
-"""
+#runSinkArm()
+
+
+# # Stove arm
+# stoveArmMountHeight = 1.3
+# #stoveArmMount = SE3(-0.45, benchLocationY - benchSizeY/2, sinkArmMountHeight) * SE3.Rx(-pi/2)
+# stoveArmMount = SE3(
+#     -0.45,
+#     benchLocationY - benchSizeY/2,
+#     stoveArmMountHeight
+# ) * SE3.Rx(-pi/2)
+
+# print("MADE IT HEREHREHEKJFKLDSJKLFJDSLKJFDLSKJFKLDSJFDS")
+
+# stoveArm = JakaMiniCobo(base=stoveArmMount)
+# #stoveArm.q = [0, 0, 0, 0, 0, 0]
+# stoveArm.add_to_env(env)
+
+# print("MADE IT FURTHERRRRRRJKLFDSJLFKDSJKLFJDSLKJFKLDSJLKFDSJLKFJDSFDSJKFDSJKFDS")
+
+# stoveResult = runStoveArm(env, teaCupParts,
+#                         cupPickBase = SE3(teaCupLocationX, teaCupLocationY, teaCupLocationZ),
+#                         tapSpoutEnd = tapSpoutEnd,
+#                         cupHeight = teaCupSizeZ,
+#                         cupWidth = teaCupSizeX,
+#                         mountPose = stoveArmMount)
+
+
+
+
+
+
 
 #OPENBARRIERDOORISBROKEN
 #OPENBARRIERDOORISBROKEN
