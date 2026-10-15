@@ -14,15 +14,11 @@ class JakaMiniCobo(UTSMeshRobot):
     link_colors = [jakaGrey] * 7
 
     def __init__(self, base=None):
-        #new ones from researchGate
-        d      = [0.3330,        0,      0.3160,      0,     0.3840,      0.075   ]
-        a      = [0,            0,  0,  0.0825,          -0.0825,          0       ]
-        alpha  = [0,    -np.pi / 2,      np.pi / 2,      np.pi / 2,  -np.pi / 2, np.pi / 2       ]
+        # Active DH parameters matching urdfJointOrigins geometry
+        d      = [0.120,        0,      0,      -0.090,     0.085,      0.075   ]
+        a      = [0,            0.280,  0.225,  0,          0,          0       ]
+        alpha  = [np.pi / 2,    0,      0,      np.pi / 2,  -np.pi / 2, 0       ]
 
-        #old ones from chat
-        #d      = [0.120,        0,      0,      -0.090,     0.085,      0.075   ]
-        #a      = [0,            0.280,  0.225,  0,          0,          0       ]
-        #alpha  = [np.pi / 2,    0,      0,      np.pi / 2,  -np.pi / 2, 0       ]
         qlimRad = [ (-6.28, 6.28),
                     (-2.18, 2.18),
                     (-2.27, 2.27),
@@ -40,6 +36,10 @@ class JakaMiniCobo(UTSMeshRobot):
         meshPosesAtZero = [SE3()]
         for origin in urdfJointOrigins:
             meshPosesAtZero.append(meshPosesAtZero[-1] * origin)
+        meshPosesAtZero[3] = SE3.Tx(-0.07) * meshPosesAtZero[3] * SE3.Rz(-pi / 2)
+        meshPosesAtZero[4] = SE3.Tx(-0.085) * SE3.Ty(-0.09) * meshPosesAtZero[4] * SE3.Ry(pi / 2) * SE3.Rz(pi)
+        meshPosesAtZero[5] = SE3.Tx(-0.085) * SE3.Ty(-0.09) * SE3.Tz(0.08) * meshPosesAtZero[5] * SE3.Ry(pi)
+        meshPosesAtZero[6] = SE3.Tx(-0.085) * SE3.Ty(-0.175) * SE3.Tz(0.08) * meshPosesAtZero[6]
 
         super().__init__(links, mesh_stem="JakaMiniCobo", mesh_dir=meshDir, name="JakaMiniCobo",
                          home_q=[0] * 6, base=base, qtest_transforms=meshPosesAtZero)
@@ -50,7 +50,8 @@ class JakaMiniCobo(UTSMeshRobot):
 
 steps = 50
 dt = 0.05
-homeQ = [-1.06, 0.98, 1.48, 1.79, -0.9, 2.25]
+homeQ = [0, 0, 0, 0, 0, 0]
+#homeQ = [-1.06, 0.98, 1.48, 1.79, -0.9, 2.25]
 meshPointsPerLink = 250
 collisionPad = 0.01
 reachRadius = 1.4
@@ -72,10 +73,18 @@ def stlVertices(path):
 def meshCollisionPoints(arm):
     rng = np.random.default_rng(0)
     pointsPerLink = []
+    # Safely retrieve relation matrices if available or compute from base transforms
+    rel_matrices = getattr(arm, '_relation_matrices', arm.qtest_transforms if hasattr(arm, 'qtest_transforms') else [SE3().A]*7)
+    
     for i in range(1, arm.n + 1):
-        verts = stlVertices(os.path.join(meshDir, f"JakaMiniCoboLink{i}.stl"))
+        stl_path = os.path.join(meshDir, f"JakaMiniCoboLink{i}.stl")
+        if not os.path.exists(stl_path):
+            continue
+        verts = stlVertices(stl_path)
         verts = verts[rng.choice(len(verts), min(meshPointsPerLink, len(verts)), replace=False)]
-        local = arm._relation_matrices[i] @ np.c_[verts, np.ones(len(verts))].T
+        
+        rel_mat = rel_matrices[i].A if hasattr(rel_matrices[i], 'A') else rel_matrices[i]
+        local = rel_mat @ np.c_[verts, np.ones(len(verts))].T
         pointsPerLink.append(local[:3].T)
     return pointsPerLink
 
@@ -100,7 +109,8 @@ def obstacleBoxes(env, ignore, centre):
     return np.array(lows).reshape(-1, 3), np.array(highs).reshape(-1, 3)
 
 def armPoints(arm, q):
-    frames = arm._get_transforms(q)
+    # Use standard rtb fkine_all to get all frame matrices safely
+    frames = [f.A for f in arm.fkine_all(q)]
     return np.vstack([pts @ frames[i + 1][:3, :3].T + frames[i + 1][:3, 3] for i, pts in enumerate(arm.meshPoints)])
 
 def hits(points, boxes, pad):
@@ -168,7 +178,7 @@ def gripPose(cupBase, cupWidth, cupHeight):
 def moveThrough(env, arm, poses, boxes, carried=()):
     traj = planPath(arm, poses, boxes, carried)
     if traj is None:
-        print(f"Stove arm: collision predicted on every path to {np.round(poses[-1].t, 3)} - stopping")
+        print(f"Stove arm: collision predicted on every path to {np.round(poses[-1].t, 3)} stopping")
         return False
     for q in traj:
         arm.q = q
@@ -177,6 +187,12 @@ def moveThrough(env, arm, poses, boxes, carried=()):
             shape.T = flange * offset
         env.step(dt)
     return True
+
+def makeStoveArm(mountPose):
+    arm = JakaMiniCobo(base=mountPose)
+    arm.q = homeQ
+    arm.meshPoints = meshCollisionPoints(arm)
+    return arm
 
 def runStoveArm(env, cupParts, cupPickBase, tapSpoutEnd, cupHeight, cupWidth, mountPose):
     arm = JakaMiniCobo(base=mountPose)
