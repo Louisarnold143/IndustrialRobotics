@@ -17,7 +17,7 @@ from ir_support_extra_robots import Turtlebot3Waffle
 import threading
 from functools import partial
 from sinkArmDatis import runSinkArm, makeSinkArm
-from stoveArmLouis import runStoveArm, JakaMiniCobo
+from stoveArmLouis import runStoveArm, makeStoveArm
 from tableArmArnoe import runTableArm, GP4Robot, GP4_WAIT
 from ur3eArm import runUR3eArm, makeUR3e
 
@@ -484,7 +484,7 @@ env.launch(realtime=True)
 env.set_camera_pose([-3, 3, 3.5], [0.0, -2, 0])
 
 def constructObjects():
-    constructBarrier()
+    #constructBarrier()
 
     constructBarrierDoor()
 
@@ -513,6 +513,44 @@ tapSpoutEnd = [sinkLocationX,                                                   
                sinkLocationY - sinkSizeY/2 - tapSetbackFromsink + tapTipLength,
                benchSizeZ + tapBaseHeight - tapRadius]
 
+
+
+#fjdskljflkdasjfkldaslkjfdalskjlkfjdsaklfjdklsajflkdasiofje4fioidalkfjdasklfjdslakjflkdsajlkfjdsalkjfkldjlkfjdsalkj
+
+ # Stove arm
+stoveArmMountHeight = 1.3
+#stoveArmMount = SE3(0,0,0)
+stoveArmMount = SE3(-1, benchLocationY - benchSizeY/2, sinkArmMountHeight) * SE3.Rx(-pi/2)
+
+stoveRobot = makeStoveArm(stoveArmMount)
+stoveRobot.add_to_env(env)
+
+stoveResult = runStoveArm(env, teaCupParts,
+    cupPickBase = SE3(teaCupLocationX, teaCupLocationY, teaCupLocationZ),
+    tapSpoutEnd = tapSpoutEnd,
+    cupHeight = teaCupSizeZ,
+    cupWidth = teaCupSizeX,
+    mountPose = stoveArmMount
+    )
+
+#stoveRobot.add_to_env(env)
+'''
+if stoveResult is not None:
+    sinkRobot, cupFilled = stoveResult
+    # Keep the sim open if an arm crashes, so its last pose can be inspected
+    tableResult = None
+    try:
+        tableResult = runTableArm(env, teaCupParts, cupFilled,
+                                  cupHeight = teaCupSizeZ,
+                                  cupWidth = teaCupSizeX,
+                                  mountPose = stoveArmMount,
+                                  sinkArm = sinkRobot,
+                                  arm = stoveRobot,
+                                  otherArms = [])
+    except Exception:
+        pass
+'''
+#env.hold()
 
 
 # GP4 and UR3e share the sink arm's wall and height. The GP4 is spaced from the sink arm by twice
@@ -571,47 +609,9 @@ if sinkResult is not None:
 #runSinkArm()
 
 
-# # Stove arm
-# stoveArmMountHeight = 1.3
-# #stoveArmMount = SE3(-0.45, benchLocationY - benchSizeY/2, sinkArmMountHeight) * SE3.Rx(-pi/2)
-# stoveArmMount = SE3(
-#     -0.45,
-#     benchLocationY - benchSizeY/2,
-#     stoveArmMountHeight
-# ) * SE3.Rx(-pi/2)
-
-# print("MADE IT HEREHREHEKJFKLDSJKLFJDSLKJFDLSKJFKLDSJFDS")
-
-# stoveArm = JakaMiniCobo(base=stoveArmMount)
-# #stoveArm.q = [0, 0, 0, 0, 0, 0]
-# stoveArm.add_to_env(env)
-
-# print("MADE IT FURTHERRRRRRJKLFDSJLFKDSJKLFJDSLKJFKLDSJLKFDSJLKFJDSFDSJKFDSJKFDS")
-
-# stoveResult = runStoveArm(env, teaCupParts,
-#                         cupPickBase = SE3(teaCupLocationX, teaCupLocationY, teaCupLocationZ),
-#                         tapSpoutEnd = tapSpoutEnd,
-#                         cupHeight = teaCupSizeZ,
-#                         cupWidth = teaCupSizeX,
-#                         mountPose = stoveArmMount)
 
 
-
-
-
-
-
-#OPENBARRIERDOORISBROKEN
-#OPENBARRIERDOORISBROKEN
-#OPENBARRIERDOORISBROKEN
-#OPENBARRIERDOORISBROKEN
-#OPENBARRIERDOORISBROKEN
-#OPENBARRIERDOORISBROKEN
-#OPENBARRIERDOORISBROKEN
-#OPENBARRIERDOORISBROKEN
-#OPENBARRIERDOORISBROKEN
-#OPENBARRIERDOORISBROKEN
-
+'''
 env.hold()
 
 openBarrierDoor(openDoor)
@@ -621,23 +621,8 @@ while x == 1:
     
     env.step(0.03)
 
-'''
-stop_event = threading.Event()
-threading.Thread(target=wait_for_enter, args=(stop_event,), daemon=True).start()
-
-
-try:
-    if x == 1:
-        buttons()
-        openBarrierDoor(openDoor)
-        env.step(0.03)
-#except KeyboardInterrupt:
-#    pass
-finally:
-    env.close()
-'''
-
 #MAKE THE TEA COLOUR SLOWLY FADE INTO THE TEA
 #a lot of the objects wont stay in expected spots if flipped around axis, could fix this, depends on what assesment needs
 
 env.hold()
+'''
