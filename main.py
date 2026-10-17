@@ -60,16 +60,17 @@ Cylinder = partial(Cylinder, collision=False)
 
 # = Cuboid([, , ], pose = SE3(, , ), color= )
 
-#Tea Cup
-#adding a handle to the Tea Cup might be a good idea, might do later
-teaCupSizeX = 0.05
-teaCupSizeY = 0.05
-teaCupSizeZ = 0.1
-teaCupWallThickness = 0.005
+# Open-top kettle dimensions (metres). The cylinder is constructed from wall segments;
+# there is no solid cylinder cap or lid covering its interior.
+kettleSizeX = 0.072
+kettleSizeY = 0.072
+kettleSizeZ = 0.12
+kettleWallThickness = 0.003
+kettleBodyRadius = kettleSizeX / 2
 
-teaCupLocationX = 1.78
-teaCupLocationY = -1.55
-teaCupLocationZ = 0.9
+kettleLocationX = 1.78
+kettleLocationY = -1.55
+kettleLocationZ = 0.9
 
 #Bench (including sink and tap)
 benchSizeX = 4
@@ -98,7 +99,7 @@ tapTipLength = 0.3
 
 benchColour             = [166,128,100] #medium brown wood
 backSplashColour        = (95, 75, 67) #dark brown wood
-teaCupColour            = "White"
+kettleColour            = (185, 193, 204)
 sinkColour              = (192, 192, 192) #silver
 tapColour               = (192, 192, 192) #silver
 barrierColour           = "Yellow"
@@ -398,21 +399,62 @@ def constructTap():
     env.add(tapTip)
     env.add(tapTop)
 
-def constructTeaCup():
-    global teaCupParts
-    teaCupBase = Cuboid([teaCupSizeX, teaCupSizeY, teaCupWallThickness], pose = SE3(teaCupLocationX,teaCupLocationY ,(teaCupLocationZ+teaCupWallThickness/2)), color=teaCupColour)
-    teaCupLeftWall = Cuboid([teaCupWallThickness, teaCupSizeY, teaCupSizeZ], pose = SE3((teaCupLocationX - teaCupSizeX/2 + teaCupWallThickness/2),teaCupLocationY, (teaCupLocationZ + teaCupSizeZ/2)), color=teaCupColour)
-    teaCupRightWall = Cuboid([teaCupWallThickness, teaCupSizeY, teaCupSizeZ], pose = SE3((teaCupLocationX + teaCupSizeX/2 + teaCupWallThickness/2),teaCupLocationY, (teaCupLocationZ + teaCupSizeZ/2)), color=teaCupColour)
-    teaCupTopWall = Cuboid([teaCupSizeX, teaCupWallThickness, teaCupSizeZ], pose = SE3(teaCupLocationX,(teaCupLocationY + teaCupSizeY/2 - teaCupWallThickness/2), (teaCupLocationZ + teaCupSizeZ/2)), color=teaCupColour)
-    teaCupBottomWall = Cuboid([teaCupSizeX, teaCupWallThickness, teaCupSizeZ], pose = SE3(teaCupLocationX,(teaCupLocationY - teaCupSizeY/2 + teaCupWallThickness/2), (teaCupLocationZ + teaCupSizeZ/2)), color=teaCupColour)
+def constructKettle():
+    """Create an open-top kettle, without a lid or a solid-filled cylinder.
 
-    env.add(teaCupBase)
-    env.add(teaCupLeftWall)
-    env.add(teaCupRightWall)
-    env.add(teaCupTopWall)
-    env.add(teaCupBottomWall)
+    The base plate MUST be kettleParts[0] for GP4's cupBaseFromParts() helper.
+    Every visible component is added to kettleParts so it moves with the arms.
+    """
+    global kettleParts
+    x, y, z = kettleLocationX, kettleLocationY, kettleLocationZ
+    silver = (185, 193, 204)
+    dark = (44, 51, 61)
 
-    teaCupParts = [teaCupBase, teaCupLeftWall, teaCupRightWall, teaCupTopWall, teaCupBottomWall]
+    kettleBase = Cuboid(
+        [kettleSizeX - 0.002, kettleSizeY - 0.002, kettleWallThickness],
+        pose=SE3(x, y, z + kettleWallThickness / 2), color=silver
+    )
+
+    wallSegments = []
+    facets = 16
+    wallRadius = kettleBodyRadius - kettleWallThickness / 2
+    facetWidth = 2 * kettleBodyRadius * np.sin(pi / facets) + 0.001
+    for i in range(facets):
+        angle = 2 * pi * i / facets
+        px = x + wallRadius * np.cos(angle)
+        py = y + wallRadius * np.sin(angle)
+        segment = Cuboid(
+            [facetWidth, kettleWallThickness, kettleSizeZ - kettleWallThickness],
+            pose=SE3(px, py, z + kettleWallThickness + (kettleSizeZ - kettleWallThickness) / 2)
+                 * SE3.Rz(angle + pi / 2),
+            color=silver
+        )
+        wallSegments.append(segment)
+
+    kettleSpout = Cylinder(
+        radius=0.010,
+        length=0.034,
+        pose=SE3(x - kettleBodyRadius - 0.014, y, z + 0.086) * SE3.Ry(pi / 2),
+        color=(154, 166, 181)
+    )
+    handleTop = Cuboid(
+        [0.035, 0.012, 0.012],
+        pose=SE3(x + kettleBodyRadius + 0.014, y, z + 0.099), color=dark
+    )
+    handleOuter = Cuboid(
+        [0.012, 0.012, 0.067],
+        pose=SE3(x + kettleBodyRadius + 0.029, y, z + 0.067), color=dark
+    )
+    handleBottom = Cuboid(
+        [0.035, 0.012, 0.012],
+        pose=SE3(x + kettleBodyRadius + 0.014, y, z + 0.034), color=dark
+    )
+
+    kettleParts = [kettleBase] + wallSegments + [
+        kettleSpout, handleTop, handleOuter, handleBottom
+    ]
+    for part in kettleParts:
+        env.add(part)
 
 def constructStove():
     stoveBase = Cuboid([stoveBaseSizeX, stoveBaseSizeY, 0.001 ], pose = SE3(stoveLocationX, stoveLocationY, benchSizeZ), color= stoveBaseColour)
@@ -491,7 +533,7 @@ def constructObjects():
     constructSink()
     constructBacksplash()
     constructStove()
-    constructTeaCup()
+    constructKettle()
     constructBench()
     constructMilkCartons()
     constructTap()
@@ -515,42 +557,24 @@ tapSpoutEnd = [sinkLocationX,                                                   
 
 
 
-#fjdskljflkdasjfkldaslkjfdalskjlkfjdsaklfjdklsajflkdasiofje4fioidalkfjdasklfjdslakjflkdsajlkfjdsalkjfkldjlkfjdsalkj
-
- # Stove arm
+# Stove arm remains in the scene but its kettle handoff remains experimentally disabled.
+# The proven, tested sequence is sink -> GP4 -> UR3e, with the stove transfer left for later work.
+RUN_STOVE_MOTION = False
 stoveArmMountHeight = 1.3
-#stoveArmMount = SE3(0,0,0)
 stoveArmMount = SE3(-1, benchLocationY - benchSizeY/2, sinkArmMountHeight) * SE3.Rx(-pi/2)
 
 stoveRobot = makeStoveArm(stoveArmMount)
-stoveRobot.add_to_env(env)
-
-stoveResult = runStoveArm(env, teaCupParts,
-    cupPickBase = SE3(teaCupLocationX, teaCupLocationY, teaCupLocationZ),
-    tapSpoutEnd = tapSpoutEnd,
-    cupHeight = teaCupSizeZ,
-    cupWidth = teaCupSizeX,
-    mountPose = stoveArmMount
+if RUN_STOVE_MOTION:
+    stoveRobot.add_to_env(env)
+    stoveResult = runStoveArm(env, kettleParts,
+        cupPickBase = SE3(kettleLocationX, kettleLocationY, kettleLocationZ),
+        tapSpoutEnd = tapSpoutEnd,
+        cupHeight = kettleSizeZ,
+        cupWidth = kettleSizeX,
+        mountPose = stoveArmMount
     )
-
-#stoveRobot.add_to_env(env)
-'''
-if stoveResult is not None:
-    sinkRobot, cupFilled = stoveResult
-    # Keep the sim open if an arm crashes, so its last pose can be inspected
-    tableResult = None
-    try:
-        tableResult = runTableArm(env, teaCupParts, cupFilled,
-                                  cupHeight = teaCupSizeZ,
-                                  cupWidth = teaCupSizeX,
-                                  mountPose = stoveArmMount,
-                                  sinkArm = sinkRobot,
-                                  arm = stoveRobot,
-                                  otherArms = [])
-    except Exception:
-        pass
-'''
-#env.hold()
+else:
+    stoveRobot.add_to_env(env)
 
 
 # GP4 and UR3e share the sink arm's wall and height. The GP4 is spaced from the sink arm by twice
@@ -571,23 +595,22 @@ ur3eRobot.add_to_env(env)
 
 sinkResult = runSinkArm(
     env,
-    teaCupParts,
-    cupPickBase=SE3(teaCupLocationX, teaCupLocationY, teaCupLocationZ),
+    kettleParts,
+    cupPickBase=SE3(kettleLocationX, kettleLocationY, kettleLocationZ),
     tapSpoutEnd=tapSpoutEnd,
-    cupHeight=teaCupSizeZ,
-    cupWidth=teaCupSizeX,
+    cupHeight=kettleSizeZ,
+    cupWidth=kettleSizeX,
     mountPose=sinkArmMount,
     arm=sinkRobot,
     otherArms=[tableRobot]
 )
 if sinkResult is not None:
     sinkRobot, cupFilled = sinkResult
-    # Keep the sim open if an arm crashes, so its last pose can be inspected
     tableResult = None
     try:
-        tableResult = runTableArm(env, teaCupParts, cupFilled,
-                                  cupHeight = teaCupSizeZ,
-                                  cupWidth = teaCupSizeX,
+        tableResult = runTableArm(env, kettleParts, cupFilled,
+                                  cupHeight = kettleSizeZ,
+                                  cupWidth = kettleSizeX,
                                   mountPose = tableArmMount,
                                   sinkArm = sinkRobot,
                                   arm = tableRobot,
@@ -597,13 +620,14 @@ if sinkResult is not None:
 
     if tableResult is not None:
         try:
-            runUR3eArm(env, teaCupParts, cupFilled,
-                       cupHeight = teaCupSizeZ,
-                       cupWidth = teaCupSizeX,
+            runUR3eArm(env, kettleParts, cupFilled,
+                       cupHeight = kettleSizeZ,
+                       cupWidth = kettleSizeX,
                        mountPose = ur3eMount,
                        gp4Arm = tableRobot,
                        sinkArm = sinkRobot,
-                       arm = ur3eRobot)
+                       arm = ur3eRobot,
+                       stoveArm=None)
         except Exception:
             pass
 #runSinkArm()

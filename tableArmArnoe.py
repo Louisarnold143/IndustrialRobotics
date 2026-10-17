@@ -205,15 +205,15 @@ def collision(arm, q, boxes, carried, sinkTree=None, sinkClear=0.045):
     if sinkTree is not None and np.any(sinkTree.query(points, k=1)[0] < sinkClear):
         return 'arm/other arm'
     flange = arm.fkine(q)
-    for shape, offset in carried:
+    for index, (shape, offset) in enumerate(carried):
         pose = flange * offset
-        if pose.R[2, 2] < np.cos(maxTilt):
-            return 'cup tilt'
+        if index == 0 and pose.R[2, 2] < np.cos(maxTilt):
+            return 'kettle tilt'
         corners = boxCorners(shape, pose)
         if hits(corners, boxes, -0.002):
-            return 'cup/environment'
+            return 'kettle/environment'
         if sinkTree is not None and np.any(sinkTree.query(corners, k=1)[0] < sinkClear):
-            return 'cup/other arm'
+            return 'kettle/other arm'
     return None
 
 

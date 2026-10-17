@@ -116,12 +116,12 @@ def pathCollides(arm, traj, boxes, carried):
         if hits(points, boxes, collisionPad) or nearOtherArm(arm, points):
             return True
         flange = arm.fkine(q)
-        for shape, offset in carried:
+        for index, (shape, offset) in enumerate(carried):
             carriedPose = flange * offset
             corners = boxCorners(shape, carriedPose)
             if hits(corners, boxes, -0.002) or nearOtherArm(arm, corners):
                 return True
-            if carriedPose.R[2, 2] < np.cos(maxCarryTilt):
+            if index == 0 and carriedPose.R[2, 2] < np.cos(maxCarryTilt):
                 return True
     return False
 
@@ -206,11 +206,21 @@ def runSinkArm(env, cupParts, cupPickBase, tapSpoutEnd, cupHeight, cupWidth, mou
                                   grip(cupHoldBase)], boxes, carried):
         return
 
-    cupFilled = Cylinder(radius=cupWidth/2 - 0.008, length=cupHeight * 0.8,
-                         pose=cupHoldBase * SE3(0, 0, cupHeight * 0.4 + 0.005),
-                         color="blue", collision=False)
+    # Keep the water as a single object. Removing geometry while Swift is
+    # stepping can leave a None entry in its scene list on this version.
+    waterHeight = cupHeight * 0.72
+    waterRadius = max(0.006, cupWidth / 2 - 0.010)
+    cupFilled = Cylinder(
+        radius=waterRadius,
+        length=waterHeight,
+        pose=cupHoldBase * SE3(0, 0, 0.006 + waterHeight / 2),
+        color="blue",
+        collision=False,
+    )
     env.add(cupFilled)
-    env.step(dt)
+    for _ in range(32):
+        env.step(dt)
+    print("Sink arm: kettle water filled (open top, visible from above)")
 
     flange = arm.fkine(arm.q)
     filledCarry = carried + [(cupFilled, flange.inv() * SE3(cupFilled.T))]
@@ -220,6 +230,7 @@ def runSinkArm(env, cupParts, cupPickBase, tapSpoutEnd, cupHeight, cupWidth, mou
         SE3(1.20, -1.30, 1.12),
     ]
     exitBase = SE3(cupHoldBase.t[0], -1.19, cupHoldBase.t[2])
+    succeeded = False
     for handoff in handoffBases:
         trajectory = planPath(arm, [grip(exitBase), grip(handoff)], boxes, filledCarry)
         if trajectory is None:
@@ -230,5 +241,9 @@ def runSinkArm(env, cupParts, cupPickBase, tapSpoutEnd, cupHeight, cupWidth, mou
             for shape, offset in filledCarry:
                 shape.T = newFlange * offset
             env.step(dt)
+        succeeded = True
         break
+    if not succeeded:
+        print("Sink arm: no safe kettle handoff found")
+        return None
     return arm, cupFilled
