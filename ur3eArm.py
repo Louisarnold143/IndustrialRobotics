@@ -9,7 +9,7 @@ from scipy.spatial import cKDTree
 
 from ir_support import UR3e
 
-from tableArmArnoe import armPoints, obstacleBoxes, solveMove, cupBaseFromParts, dt
+from tableArmArnoe import armPoints, obstacleBoxes, solveMove, cupBaseFromParts, collision, dt
 
 linkRadius = 0.04
 ringPoints = 8
@@ -75,6 +75,55 @@ def makeUR3e(mountPose):
     return arm
 
 
+def describeHandoffFailure(reason):
+    if reason is None:
+        return 'no failure'
+    mapping = {
+        'joint limit': 'joint-limit violation',
+        'arm/environment': 'arm collision with environment',
+        'kettle/environment': 'kettle collision with environment',
+        'kettle/other arm': 'kettle collision with another arm',
+        'arm/other arm': 'arm collision with another arm',
+        'kettle tilt': 'kettle would tilt beyond safe carry limit',
+    }
+    return mapping.get(reason, reason)
+
+
+def validateStoveHandoffPose(arm, target, boxes, carried=(), sinkTree=None, label='UR3e'):
+    if arm is None:
+        return None, 'no arm supplied'
+    result = arm.ikine_LM(target, q0=arm.q, slimit=300)
+    if not result.success:
+        return None, 'unreachable pose: IK failed'
+    if not np.all(np.isfinite(result.q)):
+        return None, 'unreachable pose: non-finite IK result'
+    limits = np.asarray(arm.qlim, dtype=float)
+    if not np.all(limits[0] <= result.q) or not np.all(result.q <= limits[1]):
+        return None, 'joint-limit violation'
+    reason = collision(arm, result.q, boxes, carried, sinkTree)
+    if reason is not None:
+        return None, describeHandoffFailure(reason)
+    return result.q, None
+
+
+def stoveHandoffCandidates(cupBase, cupHeight, cupWidth, flangeToKettle):
+    positions = []
+
+    for x in (-0.45, -0.55, -0.65):
+        for y in (-1.65, -1.50):
+            for z in (1.15, 1.25):
+                positions.append(SE3(x, y, z))
+
+    candidates = []
+
+    for base in positions:
+        for yaw in (0, pi/4, -pi/4):
+            desiredKettlePose = base * SE3.Rz(yaw)
+            target = desiredKettlePose * flangeToKettle.inv()
+            candidates.append((base, yaw, target))
+
+    return candidates
+
 def runUR3eArm(env, cupParts, cupFilled, cupHeight, cupWidth, mountPose, gp4Arm, sinkArm=None, arm=None, stoveArm=None):
     if arm is None:
         arm = makeUR3e(mountPose)
@@ -125,11 +174,61 @@ def runUR3eArm(env, cupParts, cupFilled, cupHeight, cupWidth, mountPose, gp4Arm,
         return None
     play(env, gp4Arm, retreat)
 
-    # Keep the kettle upright while the UR3e rotates toward the stove side, but do
-    # not claim a confirmed stove handoff until that path has been successfully tested.
+    flange = arm.fkine(arm.q)
+    carried = [(piece, flange.inv() * SE3(piece.T)) for piece in ignored]
+    kettleBaseAtPickup = cupBaseFromParts(cupParts)
+    flangeToKettle = flange.inv() * kettleBaseAtPickup
+    for piece, _ in carried:
+        piece.T = flange * _
+    if cupFilled is not None:
+        cupFilled.T = flange * (flange.inv() * SE3(cupFilled.T))
+    print(f'UR3e: kettle and water attached to UR3e flange at {np.round(flange.t, 3)}')
+
     if stoveArm is None:
         print('UR3e: ready for future stove-side handoff but stove transfer is disabled')
         return arm
 
-    print('UR3e: stove handoff path is experimental and still needs testing; transfer remains disabled')
+    print('UR3e: testing stove-side handoff candidates before moving the kettle')
+    stoveBoxes = obstacleBoxes(env, list(cupParts) + ([cupFilled] if cupFilled is not None else []), stoveArm.base.t)
+    chosen = None
+    for base, yaw, target in stoveHandoffCandidates(cupBase, cupHeight, cupWidth, flangeToKettle):
+        u_q, reason = validateStoveHandoffPose(arm, target, obstacles, carried=carried, sinkTree=otherArmTree([gp4Arm, sinkArm], cupCentre, 0.10), label='UR3e')
+        if reason is not None:
+            print(f'UR3e: candidate {np.round(base.t, 3)}, yaw={np.degrees(yaw):.0f}° rejected: {reason}')
+            continue
+
+        from stoveArmLouis import stoveReceiveCandidatePose, validateStoveReceivePose
+        stoveTarget = stoveReceiveCandidatePose(base, cupWidth, cupHeight, yaw)
+        s_q, s_reason = validateStoveReceivePose(stoveArm, stoveTarget, stoveBoxes, carried=(), label='Stove arm')
+        if s_reason is not None:
+            print(f'Stove arm: candidate {np.round(base.t, 3)}, yaw={np.degrees(yaw):.0f}° rejected: {s_reason}')
+            continue
+
+        u_path = solveMove(arm, target, obstacles, carried=carried, sinkTree=None, allowDetour=True)
+        if u_path is None:
+            print(f'UR3e: candidate {np.round(base.t, 3)}, yaw={np.degrees(yaw):.0f}° failed path planning for the UR3e')
+            continue
+        s_path = solveMove(stoveArm, stoveTarget, stoveBoxes, carried=(), sinkTree=None, allowDetour=True)
+        if s_path is None:
+            print(f'Stove arm: candidate {np.round(base.t, 3)}, yaw={np.degrees(yaw):.0f}° failed path planning for the stove arm')
+            continue
+
+        chosen = (base, yaw, target, u_path, stoveTarget, s_path)
+        print(f'UR3e: shared handoff pose found at {np.round(base.t, 3)}, yaw={np.degrees(yaw):.0f}°')
+        break
+
+    if chosen is None:
+        print('UR3e: no valid shared stove handoff pose exists under the current mount geometry, joint limits, or collision constraints; keeping the kettle on the UR3e.')
+        return arm
+
+    _, _, _, u_path, _, _ = chosen
+    play(env, arm, u_path, carried=carried)
+    print('UR3e: moved to the selected stove-side receive pose')
+
+    from stoveArmLouis import receiveKettleFromUR3e
+    accepted = receiveKettleFromUR3e(env, stoveArm, cupParts, cupFilled, cupHeight, cupWidth, ur3eArm=arm)
+    if accepted:
+        print('UR3e: stove receiver accepted the kettle transfer')
+    else:
+        print('UR3e: stove receiver rejected or could not complete the transfer')
     return arm

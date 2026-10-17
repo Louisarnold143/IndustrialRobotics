@@ -430,7 +430,8 @@ def runTableArm(env, cupParts, cupFilled, cupHeight, cupWidth, mountPose, sinkAr
         if path is None:
             path = solveMove(arm, target, obstacles, carried, sinkTree, allowDetour=True)
         if path is None:
-            break
+            print(f"GP4: transfer failed at step {k}/{sweepSteps}")
+            return None
         for q in path:
             arm.q = q
             flange = arm.fkine(q)

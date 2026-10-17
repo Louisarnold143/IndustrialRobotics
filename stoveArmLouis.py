@@ -5,6 +5,7 @@ import roboticstoolbox as rtb
 from spatialmath import SE3
 from spatialgeometry import Cuboid, Cylinder
 from ir_support.robots.UTSMeshRobot import UTSMeshRobot
+from tableArmArnoe import obstacleBoxes, solveMove, cupBaseFromParts, collision, dt
 
 meshDir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "JakaMiniCobo")
 
@@ -193,6 +194,78 @@ def makeStoveArm(mountPose):
     arm.q = homeQ
     arm.meshPoints = meshCollisionPoints(arm)
     return arm
+
+
+def stoveReceiveCandidatePose(cupBase, cupWidth, cupHeight, yaw=0):
+    return cupBase * SE3(0, 0, cupHeight * gripHeight) * SE3.Rz(yaw) * SE3(cupWidth / 2 + gripGap, 0, 0) * SE3.Ry(-pi / 2)
+
+
+def validateStoveReceivePose(arm, target, boxes, carried=(), label='Stove arm'):
+    result = arm.ikine_LM(target, q0=arm.q, slimit=300)
+    if not result.success:
+        return None, 'unreachable pose: IK failed'
+    q = np.asarray(result.q, dtype=float)
+    if not np.all(q >= np.asarray(arm.qlim, dtype=float)[0]) or not np.all(q <= np.asarray(arm.qlim, dtype=float)[1]):
+        return None, 'joint-limit violation'
+    reason = collision(arm, q, boxes, carried)
+    if reason is not None:
+        return None, reason
+    if not np.all(np.isfinite(q)):
+        return None, 'unreachable pose: non-finite IK result'
+    return q, None
+
+
+def receiveKettleFromUR3e(env, arm, cupParts, water, height, width, ur3eArm=None):
+    """Plan a safe receiving pose for the kettle from the UR3e side and take over ownership."""
+    objects = list(cupParts) + ([water] if water is not None else [])
+    base = cupBaseFromParts(cupParts)
+    boxes = obstacleBoxes(env, objects, arm.base.t)
+    starts = np.asarray(arm.q, dtype=float).copy()
+    choices = [
+        gripPose(base, width, height),
+        base * SE3(0, 0, 0.65 * height) * SE3.Rz(pi / 2) * SE3(width / 2 + 0.01, 0, 0) * SE3.Ry(-pi / 2),
+        base * SE3(0, 0, 0.65 * height) * SE3.Rz(-pi / 2) * SE3(width / 2 + 0.01, 0, 0) * SE3.Ry(-pi / 2),
+    ]
+    planned = None
+    for target in choices:
+        for retreat in (0.08, 0.12, 0.16):
+            first = solveMove(arm, target * SE3(0, 0, -retreat), boxes, allowDetour=True)
+            if first is None:
+                continue
+            arm.q = first[-1]
+            second = solveMove(arm, target, boxes, linear=True, allowDetour=False)
+            arm.q = starts
+            if second is not None:
+                planned = (first, second)
+                break
+        if planned is not None:
+            break
+    if planned is None:
+        print('Stove arm: unable to find a safe receiving pose')
+        return False
+
+    for path in planned:
+        for q in path:
+            arm.q = q
+            env.step(dt)
+
+    flange = arm.fkine(arm.q)
+    carried = [(obj, flange.inv() * SE3(obj.T)) for obj in objects]
+    print('Stove arm: kettle accepted at shared handoff')
+
+    lift = solveMove(arm, flange * SE3(0, 0, 0.06), boxes, carried=carried, allowDetour=False)
+    if lift is not None:
+        for q in lift:
+            arm.q = q
+            tool = arm.fkine(q)
+            for obj, offset in carried:
+                obj.T = tool * offset
+            env.step(dt)
+        print('Stove arm: kettle lifted from handoff')
+    else:
+        print('Stove arm: kettle received; lift could not be safely planned')
+    return True
+
 
 def runStoveArm(env, cupParts, cupPickBase, tapSpoutEnd, cupHeight, cupWidth, mountPose):
     arm = JakaMiniCobo(base=mountPose)

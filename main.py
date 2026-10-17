@@ -1,4 +1,5 @@
 import warnings
+import traceback
 # Hide library warnings (e.g. spatialgeometry's _propogate_scene_tree FutureWarning) from the terminal
 warnings.filterwarnings('ignore')
 from math import pi
@@ -547,6 +548,11 @@ selectors()
 buttons()
 openBarrierDoor(1)
 
+# Render the static kitchen scene before running any expensive planner or IK work.
+# Otherwise Swift can stay stuck on an empty black page while the robot search loops block the server.
+env.step(0.05)
+print('Swift scene ready; starting motion planning')
+
 # Sink arm - back panel split into 4 arm slots, sink arm takes the leftmost (+x) one
 backPanelWidth = benchSizeX + 2*backSplashDepth
 sinkArmMountHeight = 1.3
@@ -563,18 +569,19 @@ RUN_STOVE_MOTION = False
 stoveArmMountHeight = 1.3
 stoveArmMount = SE3(-1, benchLocationY - benchSizeY/2, sinkArmMountHeight) * SE3.Rx(-pi/2)
 
-stoveRobot = makeStoveArm(stoveArmMount)
-if RUN_STOVE_MOTION:
-    stoveRobot.add_to_env(env)
-    stoveResult = runStoveArm(env, kettleParts,
-        cupPickBase = SE3(kettleLocationX, kettleLocationY, kettleLocationZ),
-        tapSpoutEnd = tapSpoutEnd,
-        cupHeight = kettleSizeZ,
-        cupWidth = kettleSizeX,
-        mountPose = stoveArmMount
-    )
-else:
-    stoveRobot.add_to_env(env)
+# stoveRobot = makeStoveArm(stoveArmMount)
+# if RUN_STOVE_MOTION:
+#     stoveRobot.add_to_env(env)
+#     stoveResult = runStoveArm(env, kettleParts,
+#         cupPickBase = SE3(kettleLocationX, kettleLocationY, kettleLocationZ),
+#         tapSpoutEnd = tapSpoutEnd,
+#         cupHeight = kettleSizeZ,
+#         cupWidth = kettleSizeX,
+#         mountPose = stoveArmMount
+#     )
+# else:
+#     print("TEST: Skipping stove robot loading")
+stoveRobot = None
 
 
 # GP4 and UR3e share the sink arm's wall and height. The GP4 is spaced from the sink arm by twice
@@ -615,8 +622,9 @@ if sinkResult is not None:
                                   sinkArm = sinkRobot,
                                   arm = tableRobot,
                                   otherArms = [ur3eRobot])
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"Main: GP4 transfer failed before UR3e stage: {exc}")
+        traceback.print_exc()
 
     if tableResult is not None:
         try:
@@ -628,10 +636,12 @@ if sinkResult is not None:
                        sinkArm = sinkRobot,
                        arm = ur3eRobot,
                        stoveArm=None)
-        except Exception:
-            pass
-#runSinkArm()
+        except Exception as exc:
+            print(f"Main: UR3e stage failed after GP4 retreat: {exc}")
+            traceback.print_exc()
 
+# Keep Swift open after the robot movements finish, even though the stove handoff remains disabled.
+env.hold()
 
 
 
